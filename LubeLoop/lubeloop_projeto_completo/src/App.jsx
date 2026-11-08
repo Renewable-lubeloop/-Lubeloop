@@ -1,7 +1,40 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Inicialização da conexão ao Supabase
+// Componente da Logo Vetorial LubeLoop (Gota + Loop de Reciclagem)
+const LubeLoopLogo = ({ className = "w-10 h-10", glow = true }) => (
+  <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="lubeloopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#34D399" />
+        <stop offset="50%" stopColor="#10B981" />
+        <stop offset="100%" stopColor="#06B6D4" />
+      </linearGradient>
+      {glow && (
+        <filter id="lubeloopGlow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="4" stdDeviation="5" floodColor="#10B981" floodOpacity="0.5" />
+        </filter>
+      )}
+    </defs>
+    {/* Anel de reciclagem circular */}
+    <path
+      d="M50 14 C30 14 14 30 14 50 C14 70 30 86 50 86 C70 86 86 70 86 50 C86 40 81 31 73 24"
+      stroke="url(#lubeloopGrad)"
+      strokeWidth="9"
+      strokeLinecap="round"
+      filter={glow ? "url(#lubeloopGlow)" : undefined}
+    />
+    {/* Gota de óleo central (OLUC) */}
+    <path
+      d="M50 28 C43 39 38 48 38 55 C38 62 43.4 67 50 67 C56.6 67 62 62 62 55 C62 48 57 39 50 28 Z"
+      fill="url(#lubeloopGrad)"
+    />
+    <circle cx="50" cy="55" r="3" fill="#A7F3D0" />
+    <circle cx="73" cy="24" r="5" fill="#34D399" />
+  </svg>
+)
+
+// Conexão com o Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = (supabaseUrl && supabaseAnonKey) 
@@ -172,20 +205,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#080C14] text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       
-      {/* Glow de fundo estético */}
+      {/* Luzes estéticas de fundo */}
       <div className="fixed top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="fixed bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      {/* Header Superior Moderno */}
+      {/* Header Superior com Nova Logo Integrada */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           
-          {/* Brand / Logo */}
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-emerald-500/30 transform hover:scale-105 transition">
-                LL
-              </div>
+          {/* Logo & Marca */}
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
+            <div className="relative transform hover:scale-105 transition duration-300">
+              <LubeLoopLogo className="w-11 h-11" glow={true} />
               <span className="absolute -bottom-1 -right-1 flex h-3.5 w-3.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-slate-950"></span>
@@ -197,14 +228,14 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  SaaS 2.0
+                  SaaS
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
             </div>
           </div>
 
-          {/* Tab Navigation Pill */}
+          {/* Navegação */}
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
             <button 
               onClick={() => setActiveTab('dashboard')}
@@ -242,6 +273,38 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
+            {/* Banner Principal com a Nova Logo em Destaque */}
+            <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
+              <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
+              <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+                
+                <div className="flex items-center gap-6">
+                  {/* Logo em tamanho grande com efeito de iluminação */}
+                  <div className="p-4 rounded-3xl bg-slate-950/80 border border-slate-800/80 shadow-2xl shadow-emerald-500/20 shrink-0">
+                    <LubeLoopLogo className="w-20 h-20" glow={true} />
+                  </div>
+                  <div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
+                      🌱 Plataforma SaaS Eco-Friendly
+                    </div>
+                    <h2 className="text-3xl font-black text-white tracking-tight">
+                      LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
+                    </h2>
+                    <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
+                      Sistema integrado de gestão, automação fiscal de CNPJ/CPF e otimização de rotas para recolha de óleos lubrificantes usados.
+                    </p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setActiveTab('solicitar')}
+                  className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-7 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center gap-2 shrink-0"
+                >
+                  <span>+ Criar Solicitação de Coleta</span>
+                </button>
+              </div>
+            </div>
+
             {/* Grid de Cards Métricos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               
@@ -253,7 +316,7 @@ export default function App() {
                 <h3 className="text-3xl font-black text-white tracking-tight">
                   {coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-sm font-bold text-emerald-400">Litros</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado em tempo real</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado no sistema</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition-all duration-300 shadow-xl">
@@ -264,7 +327,7 @@ export default function App() {
                 <h3 className="text-3xl font-black text-amber-400 tracking-tight">
                   {coletas.filter(c => c.status === 'pendente').length} <span className="text-sm font-bold text-slate-400">Ordens</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Aguardando recolha de frota</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Aguardando frota</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition-all duration-300 shadow-xl">
@@ -275,44 +338,20 @@ export default function App() {
                 <h3 className="text-3xl font-black text-cyan-400 tracking-tight">
                   {coletas.filter(c => c.mtr_numero).length} <span className="text-sm font-bold text-slate-400">SINIR</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Manifestos ambientais</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Manifestos validados</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition-all duration-300 shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Rotas & GPS</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Navegação GPS</span>
                   <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🗺️</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
                   Google <span className="text-sm font-bold text-slate-400">& Apple</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Navegação ativa em 1 toque</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Rotas ativas de recolha</p>
               </div>
 
-            </div>
-
-            {/* Banner de Ação Rápida */}
-            <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
-              <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
-              <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-                <div className="max-w-2xl">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-3">
-                    🚀 Automação Fiscal & Logística
-                  </div>
-                  <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight mb-2">
-                    Coleta Inteligente de Óleo Usado (OLUC)
-                  </h2>
-                  <p className="text-slate-400 text-sm leading-relaxed">
-                    Pesquisa automática de CNPJ/CPF integrada à Receita Federal e ao Sintegra ES com diferenciação entre Matriz e Filiais. Rotas GPS automáticas para o motorista no campo.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setActiveTab('solicitar')}
-                  className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-7 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center gap-2"
-                >
-                  <span>+ Nova Solicitação</span>
-                </button>
-              </div>
             </div>
 
           </div>
@@ -325,11 +364,13 @@ export default function App() {
               <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none"></div>
 
               <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-800/80">
-                <div>
-                  <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                  <p className="text-xs text-slate-400 mt-1">Preencha o CPF ou CNPJ para busca automática de dados cadastrais e fiscais.</p>
+                <div className="flex items-center gap-4">
+                  <LubeLoopLogo className="w-10 h-10" />
+                  <div>
+                    <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Preencha o CPF ou CNPJ para consulta automática de dados cadastrais.</p>
+                  </div>
                 </div>
-                <span className="hidden sm:block text-2xl">⚡</span>
               </div>
 
               <form onSubmit={handleCriarSolicitacao} className="space-y-6">
