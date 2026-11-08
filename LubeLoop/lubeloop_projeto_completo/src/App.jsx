@@ -157,6 +157,17 @@ export default function App() {
     }
   }
 
+  // Geradores de URLs de rota para navegação GPS
+  const getGoogleMapsUrl = (endereco, cidade, estado) => {
+    const destino = encodeURIComponent(`${endereco}, ${cidade} - ${estado}`)
+    return `https://www.google.com/maps/dir/?api=1&destination=${destino}`
+  }
+
+  const getAppleMapsUrl = (endereco, cidade, estado) => {
+    const destino = encodeURIComponent(`${endereco}, ${cidade} - ${estado}`)
+    return `https://maps.apple.com/?daddr=${destino}`
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -195,7 +206,7 @@ export default function App() {
 
         <div className="flex items-center gap-2 text-xs">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
-          <span className="text-slate-300 font-mono">Busca CPF & CNPJ: Ativa</span>
+          <span className="text-slate-300 font-mono">GPS & Rotas: Ativos</span>
         </div>
       </header>
 
@@ -222,8 +233,8 @@ export default function App() {
                 </h3>
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Busca de Clientes</p>
-                <h3 className="text-2xl font-bold text-indigo-400 mt-1">CPF & CNPJ</h3>
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Navegação GPS</p>
+                <h3 className="text-2xl font-bold text-indigo-400 mt-1">Google & Apple</h3>
               </div>
             </div>
 
@@ -231,7 +242,7 @@ export default function App() {
               <div>
                 <h2 className="text-2xl font-bold text-white mb-2">Automação de Rota & SINIR para OLUC</h2>
                 <p className="text-slate-300 max-w-xl text-sm leading-relaxed">
-                  Preenchimento automático por consulta à Receita Federal / Sintegra para empresas (CNPJ) e histórico interno no Supabase para pessoas físicas (CPF).
+                  Conexão direta de rotas para os motoristas via Google Maps ou Apple Maps, com consulta fiscal automatizada e registro no Supabase.
                 </p>
               </div>
               <button 
@@ -361,7 +372,7 @@ export default function App() {
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-xl font-bold text-white">Ordens de Coleta Registadas</h2>
-                <p className="text-xs text-slate-400">Listagem de solicitações com validação fiscal no Supabase</p>
+                <p className="text-xs text-slate-400">Listagem de solicitações com atalhos de GPS e navegação</p>
               </div>
               <button 
                 onClick={buscarColetas}
@@ -386,6 +397,7 @@ export default function App() {
                       <th className="p-3">Inscrição Estadual</th>
                       <th className="p-3">Volume</th>
                       <th className="p-3">Localização</th>
+                      <th className="p-3">Rota GPS / Mapa</th>
                       <th className="p-3">Status</th>
                       <th className="p-3 rounded-r-lg">MTR SINIR</th>
                     </tr>
@@ -404,7 +416,30 @@ export default function App() {
                           {item.volume_estimado_litros} L
                         </td>
                         <td className="p-3 text-xs text-slate-300">
-                          {item.cidade}/{item.estado}
+                          <span className="font-semibold block text-slate-200">{item.endereco}</span>
+                          <span className="text-slate-400">{item.cidade}/{item.estado}</span>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <a 
+                              href={getGoogleMapsUrl(item.endereco, item.cidade, item.estado)} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded text-xs flex items-center gap-1 font-semibold transition shadow-sm"
+                              title="Iniciar rota no Google Maps"
+                            >
+                              🗺️ Google
+                            </a>
+                            <a 
+                              href={getAppleMapsUrl(item.endereco, item.cidade, item.estado)} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded text-xs flex items-center gap-1 font-semibold transition shadow-sm"
+                              title="Iniciar rota no Apple Maps"
+                            >
+                              📍 Apple
+                            </a>
+                          </div>
                         </td>
                         <td className="p-3">
                           <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
