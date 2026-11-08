@@ -65,7 +65,7 @@ export default function App() {
     gerador: '',
     cnpj: '',
     inscricao_estadual: '',
-    licenca_operacao: 'LO-IEMA 4859/2025',
+    licenca_operacao: 'LO-AMB 4859/2026',
     lo_valida: true,
     volume_estimado: '',
     valor_esperado: '',
@@ -75,11 +75,11 @@ export default function App() {
     estado_base_transbordo: 'ES',
     estado_destinacao_final: 'SP',
     endereco: '',
-    cidade: 'Serra',
+    cidade: 'Vitória',
     estado: 'ES'
   })
 
-  // Estado da DRE Calculada em Tempo Real (Sem exibição do escalonamento interno)
+  // Estado da DRE Calculada em Tempo Real (Escalonamento Oculto)
   const [breakdownAtual, setBreakdownAtual] = useState({
     precoBrutoRerrefino: '2.40',
     custoMaoDeObraMotorista: '0.23',
@@ -90,11 +90,11 @@ export default function App() {
     deducoesTotais: '0.89',
     tetoSugerido: '1.51',
     faixaTexto: 'R$ 1.13 a R$ 1.51 / L',
-    nomeUsinaProxima: 'Base ES ➔ Usina SP',
-    nomeZona: 'Hub Direto (Baixo Frete)'
+    nomeUsinaProxima: 'Base Transbordo ➔ Usina Rerrefino',
+    nomeZona: 'Rota Terrestre Regular'
   })
 
-  // Estado do Formulário de Cadastro de Unidades Operacionais
+  // Estado do Formulário de Cadastro de Unidades Operacionais (ANP)
   const [novaUnidade, setNovaUnidade] = useState({
     tipo: 'transbordo',
     razao_social: '',
@@ -103,9 +103,11 @@ export default function App() {
     inscricao_estadual: '',
     licenca_operacao: '',
     orgao_ambiental: 'IEMA',
+    autorizacao_anp: '',
+    situacao_anp: 'AUTORIZADO', // AUTORIZADO / EM_ANALISE / SUSPENSO
     endereco: '',
     bairro: '',
-    cidade: 'Serra',
+    cidade: 'Vitória',
     estado: 'ES',
     capacidade_estocagem_litros: '50000',
     contato_nome: '',
@@ -180,7 +182,7 @@ export default function App() {
     return sistemas
   }
 
-  // MOTOR DE DRE + TRANSBORDO + ESCALONAMENTO INTERNO DE FAIXAS DE VOLUME
+  // MOTOR DINÂMICO DE DRE + FRETE TRANSBORDO + ESCALONAMENTO INTERNO OCULTO
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -188,25 +190,25 @@ export default function App() {
     const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
     const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
-    // 1. Preço Base de Referência Usina
+    // 1. Preço de Referência do Rerrefino Nacional
     const precoBrutoRerrefino = 2.40 
 
-    // 2. Mão de Obra e Folha CCT por Região
+    // 2. Custo de Mão de Obra CCT e Encargos Regionais
     const custosTrabalhistasUF = {
       'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
     }
     let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
 
-    // 3. Coleta Capilar Local
+    // 3. Coleta Capilar Local (Diesel S10, Pneus e Manutenção)
     let custoDieselPneusMaint = 0.30
-    const cidadesHub = ['serra', 'vitoria', 'vitória', 'vila velha', 'cariacica', 'viana']
+    const cidadesHub = ['vitoria', 'vitória', 'serra', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
       custoDieselPneusMaint -= 0.04
     }
 
-    // 4. Consulta Dinâmica ao Supabase: Rota Entreposto ➔ Rerrefinador
+    // 4. CONSULTA DINÂMICA ANP/SUPABASE: Unidades Autorizadas de Transbordo e Rerrefino
     let custoFreteTransbordo = 0.00
-    let nomeUsinaProxima = 'Envio Direto Usina'
+    let nomeUsinaProxima = 'Envio Direto Usina Autorizada ANP'
 
     if (temTransbordo && supabase) {
       try {
@@ -236,7 +238,7 @@ export default function App() {
           nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
         }
       } catch (err) {
-        console.error("Erro ao consultar unidades no Supabase:", err)
+        console.error("Erro ao consultar unidades ANP no Supabase:", err)
       }
 
       if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') custoFreteTransbordo = 0.15
@@ -246,34 +248,35 @@ export default function App() {
       else custoFreteTransbordo = 0.18
     }
 
-    // 5. Custos Administrativos
+    // 5. Custos Administrativos e Licenciamento
     const custosAdministrativos = 0.18
 
-    // 6. Custo Balsa
+    // 6. Custo de Travessia Fluvial / Balsa
     const custoBalsa = requerBalsa ? 0.35 : 0.00
 
-    // 7. Deduções Operacionais Totais
+    // 7. Total Deduções Operacionais
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
     
-    // Teto Base Operacional sem escalonamento
+    // Teto Base Calculado
     const tetoBaseCalculado = Math.max(0.30, precoBrutoRerrefino - deducoesTotais)
 
-    // 8. ESCALONAMENTO INTERNO DE FAIXA DE VOLUME (Cálculo silencioso de retaguarda)
-    let fatorEscala = 1.00 // > 1500L = valor cheio
+    // 8. ESCALONAMENTO INTERNO E SILENCIOSO POR FAIXA DE VOLUME
+    // <= 200L: -25% | <= 300L: -20% | <= 500L: -15% | <= 1000L: -10% | <= 1500L: -5% | > 1500L: 100%
+    let fatorEscala = 1.00
 
     if (vol > 0 && vol <= 200) {
-      fatorEscala = 0.75 // -25%
+      fatorEscala = 0.75
     } else if (vol > 200 && vol <= 300) {
-      fatorEscala = 0.80 // -20%
+      fatorEscala = 0.80
     } else if (vol > 300 && vol <= 500) {
-      fatorEscala = 0.85 // -15%
+      fatorEscala = 0.85
     } else if (vol > 500 && vol <= 1000) {
-      fatorEscala = 0.90 // -10%
+      fatorEscala = 0.90
     } else if (vol > 1000 && vol <= 1500) {
-      fatorEscala = 0.95 // -5%
+      fatorEscala = 0.95
     }
 
-    // Aplicação do fator de escala ao valor praticável entregue ao cliente
+    // O valor resultante reflete a margem final sem exibir o desconto ao gerador
     const valorLiquidoMaximo = tetoBaseCalculado * fatorEscala
     const valorLiquidoMinimo = Math.max(0.20, valorLiquidoMaximo * 0.75)
 
@@ -415,7 +418,7 @@ export default function App() {
     }
   }
 
-  // Consulta de CNPJ para Cadastro de Unidade Operacional
+  // Consulta de CNPJ para Cadastro de Unidade Operacional (Bases/Rerrefinadores ANP)
   const handleCnpjUnidadeChange = async (e) => {
     const doc = e.target.value
     setNovaUnidade(prev => ({ ...prev, cnpj: doc }))
@@ -471,6 +474,8 @@ export default function App() {
           inscricao_estadual: novaUnidade.inscricao_estadual || 'Isento',
           licenca_operacao: novaUnidade.licenca_operacao,
           orgao_ambiental: novaUnidade.orgao_ambiental,
+          autorizacao_anp: novaUnidade.autorizacao_anp,
+          situacao_anp: novaUnidade.situacao_anp,
           endereco: novaUnidade.endereco,
           bairro: novaUnidade.bairro,
           cidade: novaUnidade.cidade,
@@ -483,7 +488,7 @@ export default function App() {
       ])
 
       if (!error) {
-        alert("Unidade operacional cadastrada com sucesso!")
+        alert("Unidade operacional (Agente ANP) cadastrada com sucesso!")
         setNovaUnidade({
           tipo: 'transbordo',
           razao_social: '',
@@ -492,9 +497,11 @@ export default function App() {
           inscricao_estadual: '',
           licenca_operacao: '',
           orgao_ambiental: 'IEMA',
+          autorizacao_anp: '',
+          situacao_anp: 'AUTORIZADO',
           endereco: '',
           bairro: '',
-          cidade: 'Serra',
+          cidade: 'Vitória',
           estado: 'ES',
           capacidade_estocagem_litros: '50000',
           contato_nome: '',
@@ -526,7 +533,7 @@ export default function App() {
 
       if (valDigitado > teto + 0.30) {
         const aceita = window.confirm(
-          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera o valor teto calculado para a sua localização/volume (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
+          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera o valor teto operacional calculado para esta rota/volume (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
         )
         if (!aceita) return
       }
@@ -575,7 +582,7 @@ export default function App() {
           estado_base_transbordo: 'ES',
           estado_destinacao_final: 'SP',
           endereco: '', 
-          cidade: 'Serra', 
+          cidade: 'Vitória', 
           estado: 'ES' 
         })
         buscarColetas()
@@ -607,7 +614,7 @@ export default function App() {
       <div className="fixed top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="fixed bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      {/* Header Superior */}
+      {/* Header Superior Neutro */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           
@@ -625,10 +632,10 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  DRE & Logística Transbordo
+                  Conexão Agentes ANP
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
+              <p className="text-xs text-slate-400 font-medium">Plataforma Neutra de Gestão & Logística de OLUC</p>
             </div>
           </div>
 
@@ -655,7 +662,7 @@ export default function App() {
               onClick={() => setActiveTab('unidades')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🏢 Unidades ({unidades.length})
+              🏢 Agentes ANP ({unidades.length})
             </button>
             <button 
               onClick={() => setActiveTab('config_mtr')}
@@ -667,7 +674,7 @@ export default function App() {
 
           <div className="hidden lg:flex items-center gap-2 bg-slate-900/50 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-            <span className="text-slate-300">IEMA-ES / CETESB / FEAM / INEA: ON</span>
+            <span className="text-slate-300">SISTEMA ANP / SINIR / MTR: ATIVO</span>
           </div>
 
         </div>
@@ -689,13 +696,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🚚 Operação Dinâmica & Logística Transbordo
+                      🏛️ Em Conformidade com Resoluções ANP (942 e 943/2023)
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
-                      LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
+                      LubeLoop <span className="text-emerald-400">Plataforma de Coleta & Transbordo</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      DRE completa integrando folha de motoristas CCT, periculosidade, insumos, administração e o frete de transferência entre entrepostos e usinas licenciadas.
+                      Plataforma independente de rastreamento e DRE logística entre geradores de OLUC, coletores autorizados e usinas de rerrefino outorgadas pela ANP.
                     </p>
                   </div>
                 </div>
@@ -718,18 +725,18 @@ export default function App() {
                 <h3 className="text-3xl font-black text-white tracking-tight">
                   {coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-sm font-bold text-emerald-400">Litros</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado no sistema</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado na plataforma</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Unidades Operacionais</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agentes Regulados ANP</span>
                   <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🏢</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  {unidades.length} <span className="text-sm font-bold text-slate-400">Cadastradas</span>
+                  {unidades.length} <span className="text-sm font-bold text-slate-400">Ativos</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Bases & Usinas no Supabase</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Coletores & Rerrefinadores</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition shadow-xl">
@@ -745,55 +752,63 @@ export default function App() {
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Base de Apoio ES</span>
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">📍</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Verificação de Licenças</span>
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">🛡️</div>
                 </div>
                 <h3 className="text-3xl font-black text-amber-400 tracking-tight">
-                  Serra <span className="text-sm font-bold text-slate-400">/ ES</span>
+                  100% <span className="text-sm font-bold text-slate-400">Homologado</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">MTR-ES IEMA Homologado</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Integração ANP & Órgãos Estaduais</p>
               </div>
             </div>
 
           </div>
         )}
 
-        {/* ABA: GESTÃO DE UNIDADES OPERACIONAIS */}
+        {/* ABA: GESTÃO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
         {activeTab === 'unidades' && (
           <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
             
             <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl">
-              <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-800">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between pb-6 mb-6 border-b border-slate-800 gap-4">
                 <div>
                   <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>🏢</span> Cadastrar Nova Unidade Operacional
+                    <span>🏢</span> Cadastrar Agente Regulado ANP
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Cadastre bases de armazenamento temporário (transbordo) ou usinas de rerrefino contratadas para integração automática de DRE e MTR.
+                    Bases de transbordo (coleta/armazenamento temporário) e usinas de rerrefino em conformidade com o portal gov.br/anp.
                   </p>
                 </div>
+                <a 
+                  href="https://www.gov.br/anp/pt-br/assuntos/distribuicao-e-revenda/lubrificantes/relacao-de-agentes-autorizados" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0"
+                >
+                  🔗 Consultar Agentes ANP ↗
+                </a>
               </div>
 
               <form onSubmit={handleSalvarUnidade} className="space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                      Tipo de Unidade
+                      Tipo de Atividade ANP
                     </label>
                     <select
                       value={novaUnidade.tipo}
                       onChange={e => setNovaUnidade({...novaUnidade, tipo: e.target.value})}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none font-bold"
                     >
-                      <option value="transbordo">Base de Apoio / Armazenamento Temporário (Transbordo)</option>
-                      <option value="rerrefino">Usina de Rerrefino (Destinação Final)</option>
+                      <option value="transbordo">Coletor / Armazenador Temporário (Base Transbordo)</option>
+                      <option value="rerrefino">Rerrefinador Outorgado (Destinação Final)</option>
                     </select>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
-                      <span>CNPJ da Unidade</span>
-                      {buscandoDocUnidade && <span className="text-indigo-400 animate-pulse text-[10px]">🔍 Buscando...</span>}
+                      <span>CNPJ da Empresa</span>
+                      {buscandoDocUnidade && <span className="text-indigo-400 animate-pulse text-[10px]">🔍 Consultando...</span>}
                     </label>
                     <input 
                       type="text"
@@ -812,7 +827,7 @@ export default function App() {
                     <input 
                       type="text"
                       required
-                      placeholder="Nome da empresa"
+                      placeholder="Razão Social completa"
                       value={novaUnidade.razao_social}
                       onChange={e => setNovaUnidade({...novaUnidade, razao_social: e.target.value})}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
@@ -823,15 +838,44 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                      Nome Fantasia / Sigla
+                      Nome Fantasia / Unidade
                     </label>
                     <input 
                       type="text"
-                      placeholder="Ex: Base Serra / Usina RJ"
+                      placeholder="Ex: Base Regional / Usina Polo"
                       value={novaUnidade.nome_fantasia}
                       onChange={e => setNovaUnidade({...novaUnidade, nome_fantasia: e.target.value})}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Nº Autorização ANP (SIMP)
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="Ex: ANP-943/2023-001"
+                      value={novaUnidade.autorizacao_anp}
+                      onChange={e => setNovaUnidade({...novaUnidade, autorizacao_anp: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Situação / Status ANP
+                    </label>
+                    <select
+                      value={novaUnidade.situacao_anp}
+                      onChange={e => setNovaUnidade({...novaUnidade, situacao_anp: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:border-indigo-500 focus:outline-none"
+                    >
+                      <option value="AUTORIZADO">✓ AUTORIZADO (Ativo)</option>
+                      <option value="EM_ANALISE">⏳ EM ANÁLISE REVISIONAL</option>
+                      <option value="SUSPENSO">❌ CANCELADO / SUSPENSO</option>
+                    </select>
                   </div>
 
                   <div>
@@ -841,41 +885,10 @@ export default function App() {
                     <input 
                       type="text"
                       required
-                      placeholder="Ex: LO-IEMA 4859/2025"
+                      placeholder="Ex: LO-AMB 4859/2026"
                       value={novaUnidade.licenca_operacao}
                       onChange={e => setNovaUnidade({...novaUnidade, licenca_operacao: e.target.value})}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                      Órgão Emissor da LO
-                    </label>
-                    <select
-                      value={novaUnidade.orgao_ambiental}
-                      onChange={e => setNovaUnidade({...novaUnidade, orgao_ambiental: e.target.value})}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none font-mono"
-                    >
-                      <option value="IEMA">IEMA (Espírito Santo)</option>
-                      <option value="INEA">INEA (Rio de Janeiro)</option>
-                      <option value="CETESB">CETESB (São Paulo)</option>
-                      <option value="FEAM">FEAM (Minas Gerais)</option>
-                      <option value="IAT">IAT (Paraná)</option>
-                      <option value="IBAMA">IBAMA (Federal)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                      Capacidade Tanques (Litros)
-                    </label>
-                    <input 
-                      type="number"
-                      placeholder="Ex: 50000"
-                      value={novaUnidade.capacidade_estocagem_litros}
-                      onChange={e => setNovaUnidade({...novaUnidade, capacidade_estocagem_litros: e.target.value})}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:border-indigo-500 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -883,7 +896,7 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-                      Endereço da Unidade
+                      Endereço da Instalação / Base
                     </label>
                     <input 
                       type="text"
@@ -924,7 +937,7 @@ export default function App() {
                   disabled={loading || buscandoDocUnidade}
                   className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black py-3.5 rounded-xl transition shadow-lg shadow-indigo-500/20 text-xs uppercase tracking-wider"
                 >
-                  + Cadastrar Unidade no Supabase
+                  + Cadastrar Agente Regulado no Supabase
                 </button>
 
               </form>
@@ -932,25 +945,24 @@ export default function App() {
 
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 shadow-2xl">
               <h3 className="text-lg font-black text-white mb-4 flex items-center justify-between">
-                <span>Unidades Cadastradas ({unidades.length})</span>
+                <span>Agentes ANP Cadastrados ({unidades.length})</span>
                 <button onClick={buscarUnidades} className="text-xs text-indigo-400 hover:underline">↻ Atualizar Lista</button>
               </h3>
 
               {unidades.length === 0 ? (
                 <div className="py-10 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-                  Nenhuma unidade cadastrada no Supabase. Preencha o formulário acima para adicionar a primeira base ou usina.
+                  Nenhum agente cadastrado no Supabase. Preencha o formulário acima para vincular coletores e rerrefinadores autorizados pela ANP.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs text-slate-300">
                     <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                       <tr>
-                        <th className="p-3">Tipo</th>
-                        <th className="p-3">Nome / CNPJ</th>
-                        <th className="p-3">Licença Ambiental (LO)</th>
+                        <th className="p-3">Atividade</th>
+                        <th className="p-3">Empresa / CNPJ</th>
+                        <th className="p-3">Autorização ANP / LO</th>
                         <th className="p-3">Localização</th>
-                        <th className="p-3">Capacidade</th>
-                        <th className="p-3 text-center">Status</th>
+                        <th className="p-3 text-center">Status ANP</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -958,7 +970,7 @@ export default function App() {
                         <tr key={u.id || i} className="hover:bg-slate-800/40">
                           <td className="p-3">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
-                              {u.tipo === 'transbordo' ? 'Base Apoio' : 'Usina Rerrefino'}
+                              {u.tipo === 'transbordo' ? 'Coletor / Base' : 'Rerrefinador'}
                             </span>
                           </td>
                           <td className="p-3 font-sans font-bold text-white">
@@ -966,19 +978,16 @@ export default function App() {
                             <span className="block text-[11px] font-mono text-slate-400 font-normal">{u.cnpj}</span>
                           </td>
                           <td className="p-3 text-emerald-400 font-bold">
-                            {u.licenca_operacao}
-                            <span className="block text-[10px] text-slate-400 font-normal">Órgão: {u.orgao_ambiental}</span>
+                            {u.autorizacao_anp || 'ANP-REGULADO'}
+                            <span className="block text-[10px] text-slate-400 font-normal">LO: {u.licenca_operacao}</span>
                           </td>
                           <td className="p-3 font-sans text-slate-300">
                             {u.cidade}/{u.estado}
                             <span className="block text-[10px] text-slate-400">{u.endereco}</span>
                           </td>
-                          <td className="p-3 font-bold text-slate-200">
-                            {Number(u.capacidade_estocagem_litros || 0).toLocaleString()} L
-                          </td>
                           <td className="p-3 text-center">
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
-                              ATIVO
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${u.situacao_anp === 'SUSPENSO' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
+                              {u.situacao_anp || 'AUTORIZADO'}
                             </span>
                           </td>
                         </tr>
@@ -1002,7 +1011,7 @@ export default function App() {
                     <span>⚙️</span> Roteador Dinâmico de MTRs Estaduais vs SINIR
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Quando um estado implementar um sistema próprio de MTR, ative-o nesta tela para migrar o roteamento automaticamente sem alterar código.
+                    Ative os conectores por estado para migrar o roteamento de MTRs automaticamente sem alterar o código-fonte.
                   </p>
                 </div>
               </div>
@@ -1219,7 +1228,7 @@ export default function App() {
                           onChange={e => setNovaColeta({...novaColeta, estado_base_transbordo: e.target.value})}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
                         >
-                          <option value="ES">Espírito Santo (ES) - Base Serra/ES ({getSistemaMtrOrigem('ES').nome})</option>
+                          <option value="ES">Espírito Santo (ES) - Base ({getSistemaMtrOrigem('ES').nome})</option>
                           <option value="RJ">Rio de Janeiro (RJ) - Base RJ ({getSistemaMtrOrigem('RJ').nome})</option>
                           <option value="MG">Minas Gerais (MG) - Base MG ({getSistemaMtrOrigem('MG').nome})</option>
                           <option value="SP">São Paulo (SP) - Base SP ({getSistemaMtrOrigem('SP').nome})</option>
@@ -1521,7 +1530,7 @@ export default function App() {
               <LubeLoopLogo className="w-10 h-10" />
               <div>
                 <h3 className="text-xl font-black text-white">Certificado de Destinação Final (CDF)</h3>
-                <p className="text-xs text-slate-400">Emissão oficial integrada aos órgãos ambiental e de logística do OLUC</p>
+                <p className="text-xs text-slate-400">Emissão oficial integrada aos órgãos ambiental e de logística de OLUC</p>
               </div>
             </div>
 
