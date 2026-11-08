@@ -50,7 +50,7 @@ export default function App() {
   const [filtroRegiao, setFiltroRegiao] = useState('todas')
   const [salvandoCustos, setSalvandoCustos] = useState(false)
 
-  // Controle de Senha para Matriz de Custos
+  // Controle de Senha para Matriz de Custos (Zaca1304)
   const [senhaMatriz, setSenhaMatriz] = useState('')
   const [matrizLiberada, setMatrizLiberada] = useState(false)
   const SENHA_ADMIN = 'Zaca1304'
@@ -293,11 +293,18 @@ export default function App() {
         if (response.ok) {
           const data = await response.json()
           const est = data.estabelecimento || {}
-          const inscEst = est.inscricoes_estaduais?.[0]?.numero || 'Isento / Não Localizado'
+          
+          // Captura robusta da Inscrição Estadual associada ao CNPJ completo
+          const listaIe = est.inscricoes_estaduais || []
+          let ieEncontrada = 'Isento / Não Localizado'
+          if (listaIe.length > 0) {
+            ieEncontrada = listaIe[0].numero || listaIe[0].uat || 'Isento'
+          }
+
           setNovaColeta(prev => ({
             ...prev,
             gerador: data.razao_social || est.nome_fantasia || prev.gerador,
-            inscricao_estadual: inscEst,
+            inscricao_estadual: ieEncontrada,
             endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}`,
             bairro: est.bairro || '',
             cidade: est.cidade?.nome || prev.cidade,
@@ -327,11 +334,14 @@ export default function App() {
           else if (['AM', 'PA', 'AC', 'RO', 'RR', 'AP', 'TO'].includes(uf)) reg = 'Norte'
           else if (['MT', 'MS', 'GO', 'DF'].includes(uf)) reg = 'Centro-Oeste'
 
+          const listaIe = est.inscricoes_estaduais || []
+          const ieUnidade = listaIe.length > 0 ? (listaIe[0].numero || '') : ''
+
           setNovaUnidade(prev => ({
             ...prev,
             razao_social: json.razao_social || '',
             nome_fantasia: est.nome_fantasia || json.razao_social || '',
-            inscricao_estadual: est.inscricoes_estaduais?.[0]?.numero || '',
+            inscricao_estadual: ieUnidade,
             estado: uf,
             regiao: reg,
             cidade: est.cidade?.nome || '',
@@ -355,6 +365,11 @@ export default function App() {
 
   const handleCriarSolicitacao = async (e) => {
     e.preventDefault()
+    if (!novaColeta.volume_estimado || parseFloat(novaColeta.volume_estimado) <= 0) {
+      alert("Por favor, informe o volume estimado de óleo para calcular a remuneração e prosseguir.")
+      return
+    }
+
     if (!supabase) {
       const nova = { id: Date.now(), gerador_nome: novaColeta.gerador, cnpj: novaColeta.cnpj, inscricao_estadual: novaColeta.inscricao_estadual, volume_estimado_litros: parseFloat(novaColeta.volume_estimado), valor_esperado_litro: `R$ ${breakdownAtual.tetoSugerido}/L`, mtr_numero: `Cadeia Multi-MTR: ${cadeiaMtrAtual.join(' → ')}`, endereco: novaColeta.endereco, cidade: novaColeta.cidade, estado: novaColeta.estado }
       setColetas(prev => [nova, ...prev])
@@ -418,7 +433,7 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
         
-        {/* ABA PRINCIPAL DE ENTRADA: NOVA SOLICITAÇÃO DE COLETA COM DADOS COMPLETOS E VALOR POR REGIÃO */}
+        {/* ABA PRINCIPAL DE ENTRADA: NOVA SOLICITAÇÃO DE COLETA */}
         {activeTab === 'solicitar' && (
           <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
             
@@ -431,7 +446,7 @@ export default function App() {
                   Nova Solicitação de <span className="text-emerald-400">Coleta de OLUC</span>
                 </h2>
                 <p className="text-slate-400 text-sm mt-1">
-                  Insira o CNPJ para carregar os dados cadastrais completos (Razão Social, Inscrição Estadual e Endereço) e visualizar o preço base por região.
+                  Insira o CNPJ completo do gerador para carregar a Razão Social, Inscrição Estadual e Endereço. A remuneração por litro será exibida após informar o volume.
                 </p>
               </div>
             </div>
@@ -442,27 +457,27 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase mb-1">CNPJ do Gerador</label>
-                    <input type="text" required value={novaColeta.cnpj} onChange={handleDocumentoChange} placeholder="00.000.000/0001-00 (Busca Automática)" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
-                    {buscandoDoc && <span className="text-[10px] text-emerald-400 mt-1 block">Consultando dados na Receita Federal...</span>}
+                    <input type="text" required value={novaColeta.cnpj} onChange={handleDocumentoChange} placeholder="00.000.000/0001-00" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
+                    {buscandoDoc && <span className="text-[10px] text-emerald-400 mt-1 block">Buscando CNPJ e Inscrição Estadual...</span>}
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Inscrição Estadual (IE)</label>
-                    <input type="text" value={novaColeta.inscricao_estadual} onChange={e => setNovaColeta({...novaColeta, inscricao_estadual: e.target.value})} placeholder="Inscrição Estadual" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Inscrição Estadual (I.E.)</label>
+                    <input type="text" value={novaColeta.inscricao_estadual} onChange={e => setNovaColeta({...novaColeta, inscricao_estadual: e.target.value})} placeholder="Identificada pelo CNPJ" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono font-bold text-emerald-400" />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Razão Social / Nome do Gerador</label>
-                  <input type="text" required value={novaColeta.gerador} onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})} placeholder="Nome empresarial preenchido via CNPJ" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                  <input type="text" required value={novaColeta.gerador} onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})} placeholder="Razão social carregada automaticamente" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2">
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Endereço Completo (Logradouro e Número)</label>
-                    <input type="text" required value={novaColeta.endereco} onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})} placeholder="Rua, Número, Bairro" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Endereço Completo</label>
+                    <input type="text" required value={novaColeta.endereco} onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})} placeholder="Logradouro, Número, Bairro" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-emerald-400 uppercase mb-1">Volume Estimado (Litros)</label>
+                    <label className="block text-xs font-bold text-emerald-400 uppercase mb-1">Volume para Venda (Litros)</label>
                     <input type="number" required value={novaColeta.volume_estimado} onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})} placeholder="Ex: 1000" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold" />
                   </div>
                 </div>
@@ -478,16 +493,23 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* PAINEL DE APRESENTAÇÃO DO VALOR BASE E TETO POR REGIÃO */}
-                <div className="bg-gradient-to-r from-slate-950 to-emerald-950/30 p-5 rounded-2xl border border-emerald-500/40 flex flex-col md:flex-row items-center justify-between gap-4">
-                  <div>
-                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">Remuneração Base da Operação por Região ({novaColeta.estado})</span>
-                    <p className="text-xs text-slate-400 mt-0.5">Calculado automaticamente com base nos custos logísticos estaduais (CCT e frete de transbordo).</p>
+                {/* VALOR A SER PAGO AO CLIENTE: APRESENTADO APENAS APÓS INFORMAR O VOLUME */}
+                {novaColeta.volume_estimado && parseFloat(novaColeta.volume_estimado) > 0 ? (
+                  <div className="bg-gradient-to-r from-slate-950 to-emerald-950/40 p-6 rounded-2xl border border-emerald-500/50 flex flex-col md:flex-row items-center justify-between gap-4 animate-fadeIn">
+                    <div>
+                      <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">Remuneração Calculada para o Cliente ({novaColeta.estado})</span>
+                      <p className="text-xs text-slate-400 mt-0.5">Com base no volume informado de {Number(novaColeta.volume_estimado).toLocaleString()} litros e custos logísticos da região.</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-3xl font-black text-emerald-400 font-mono">R$ {breakdownAtual.tetoSugerido} <span className="text-xs text-slate-400 font-sans">/ Litro</span></span>
+                      <span className="block text-[10px] text-slate-400 font-mono mt-1">Total Estimado: R$ {(parseFloat(novaColeta.volume_estimado) * parseFloat(breakdownAtual.tetoSugerido)).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-3xl font-black text-emerald-400 font-mono">R$ {breakdownAtual.tetoSugerido} <span className="text-xs text-slate-400 font-sans">/ Litro</span></span>
+                ) : (
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-center text-xs text-slate-400">
+                    ℹ️ Insira o <strong>Volume para Venda (Litros)</strong> acima para visualizar o valor a ser pago ao cliente por litro.
                   </div>
-                </div>
+                )}
 
                 <button type="submit" className="w-full bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 text-slate-950 font-black py-4 rounded-2xl text-xs uppercase tracking-wider shadow-xl transition transform hover:scale-[1.01]">
                   ✓ Confirmar e Enviar para Cotação & Remuneração
@@ -497,7 +519,7 @@ export default function App() {
           </div>
         )}
 
-        {/* DASHBOARD COM KPIS MAIORES E SEPARADOS POR REGIÃO */}
+        {/* DASHBOARD COM KPIS E FILTROS */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -556,7 +578,7 @@ export default function App() {
                     <tr>
                       <th className="p-3">Região / UF</th>
                       <th className="p-3">Atividade ANP</th>
-                      <th className="p-3">Empresa / Razão Social</th>
+                      <th className="p-3">Empresa / Razão Social & I.E.</th>
                       <th className="p-3">Autorização ANP</th>
                       <th className="p-3">Licença Ambiental (LO)</th>
                       <th className="p-3 text-center">Status</th>
@@ -575,7 +597,7 @@ export default function App() {
                         </td>
                         <td className="p-3 font-sans font-bold text-white">
                           {u.nome_fantasia || u.razao_social}
-                          <span className="block text-[10px] text-slate-400 font-normal">{u.cnpj}</span>
+                          <span className="block text-[10px] text-slate-400 font-normal">CNPJ: {u.cnpj} {u.inscricao_estadual ? `| I.E.: ${u.inscricao_estadual}` : ''}</span>
                         </td>
                         <td className="p-3 text-emerald-400 font-bold">{u.autorizacao_anp}</td>
                         <td className="p-3 text-slate-200">
@@ -596,7 +618,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MATRIZ DE CUSTOS PROTEGIDA POR SENHA */}
+        {/* MATRIZ DE CUSTOS PROTEGIDA POR SENHA (Zaca1304) */}
         {activeTab === 'config_custos' && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             {!matrizLiberada ? (
@@ -652,7 +674,7 @@ export default function App() {
             ) : (
               coletas.map(c => (
                 <div key={c.id} className="p-3 bg-slate-950 rounded-xl mb-2 flex justify-between border border-slate-800">
-                  <span>{c.gerador_nome} ({c.cidade}/{c.estado}) — IE: {c.inscricao_estadual || 'Isento'}</span>
+                  <span>{c.gerador_nome} ({c.cidade}/{c.estado}) — I.E.: {c.inscricao_estadual || 'Isento'}</span>
                   <span className="text-emerald-400 font-bold">{c.volume_estimado_litros} L ({c.valor_esperado_litro})</span>
                 </div>
               ))
@@ -666,6 +688,7 @@ export default function App() {
             <form onSubmit={handleSalvarUnidade} className="space-y-3">
               <input type="text" placeholder="CNPJ" value={novaUnidade.cnpj} onChange={handleCnpjUnidadeChange} className="w-full bg-slate-950 border border-slate-800 p-2 text-xs text-white rounded" required />
               <input type="text" placeholder="Razão Social" value={novaUnidade.razao_social} onChange={e => setNovaUnidade({...novaUnidade, razao_social: e.target.value})} className="w-full bg-slate-950 border border-slate-800 p-2 text-xs text-white rounded" required />
+              <input type="text" placeholder="Inscrição Estadual (I.E.)" value={novaUnidade.inscricao_estadual} onChange={e => setNovaUnidade({...novaUnidade, inscricao_estadual: e.target.value})} className="w-full bg-slate-950 border border-slate-800 p-2 text-xs text-white rounded" />
               <button type="submit" className="bg-indigo-500 text-white font-black px-4 py-2 rounded text-xs">Cadastrar</button>
             </form>
           </div>
