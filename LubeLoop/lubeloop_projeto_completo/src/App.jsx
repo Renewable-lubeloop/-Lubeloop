@@ -52,6 +52,7 @@ export default function App() {
     volume_estimado: '',
     valor_esperado: '',
     cotacao_aberta: false,
+    requer_balsa: false,
     endereco: '',
     cidade: 'Serra',
     estado: 'ES'
@@ -75,6 +76,57 @@ export default function App() {
       setLoading(false)
     }
   }
+
+  // Função para calcular preço de compra com base no Volume, Proximidade da Base e Travessia por Balsa
+  const getBenchmarkLogistico = (cidade, estado, volumeLitros, requerBalsa) => {
+    const vol = parseFloat(volumeLitros) || 0
+    const uf = (estado || '').toUpperCase().trim()
+    const cid = (cidade || '').toLowerCase().trim()
+
+    let multiplicadorZona = 1.0
+    let nomeZona = 'Rota Regular'
+
+    const cidadesHub = ['serra', 'vitoria', 'vitória', 'vila velha', 'cariacica', 'viana']
+
+    if (uf === 'ES' && cidadesHub.includes(cid)) {
+      multiplicadorZona = 1.10
+      nomeZona = 'Hub Direto'
+    } else if (['ES', 'MG', 'RJ'].includes(uf)) {
+      multiplicadorZona = 1.00
+      nomeZona = 'Rota Terrestre Regular'
+    } else {
+      multiplicadorZona = 0.80
+      nomeZona = 'Longo Curso'
+    }
+
+    // Se houver travessia de balsa/hidrovia, aplica um desconto logístico adicional de 20% para cobrir taxas de embarque HAZMAT
+    if (requerBalsa) {
+      multiplicadorZona *= 0.80
+      nomeZona += ' + Travessia Balsa/Fluvial'
+    }
+
+    // Definir Valor Base pelo Volume
+    let minBase = 1.00
+    let maxBase = 1.30
+
+    if (vol >= 2000) {
+      minBase = 1.60
+      maxBase = 2.00
+    } else if (vol >= 500) {
+      minBase = 1.25
+      maxBase = 1.60
+    }
+
+    const minAjustado = (minBase * multiplicadorZona).toFixed(2)
+    const maxAjustado = (maxBase * multiplicadorZona).toFixed(2)
+
+    return {
+      faixaTexto: `R$ ${minAjustado} a R$ ${maxAjustado} / L`,
+      nomeZona
+    }
+  }
+
+  const benchmarkAtual = getBenchmarkLogistico(novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, novaColeta.requer_balsa)
 
   // Consulta inteligente: CPF no Supabase vs CNPJ na Receita/Sintegra por UF
   const handleDocumentoChange = async (e) => {
@@ -165,11 +217,15 @@ export default function App() {
 
     setLoading(true)
 
-    const valorFinalTexto = novaColeta.cotacao_aberta 
+    let valorFinalTexto = novaColeta.cotacao_aberta 
       ? 'Cotação Aberta (Melhor Oferta)' 
       : novaColeta.valor_esperado 
         ? `R$ ${parseFloat(novaColeta.valor_esperado).toFixed(2)} / L` 
         : 'A combinar'
+
+    if (novaColeta.requer_balsa) {
+      valorFinalTexto += ' (Requer Balsa)'
+    }
 
     try {
       const { error } = await supabase.from('coletas').insert([
@@ -194,6 +250,7 @@ export default function App() {
           volume_estimado: '', 
           valor_esperado: '', 
           cotacao_aberta: false, 
+          requer_balsa: false,
           endereco: '', 
           cidade: 'Serra', 
           estado: 'ES' 
@@ -201,7 +258,7 @@ export default function App() {
         buscarColetas()
         setActiveTab('coletas')
       } else {
-        alert('Erro ao registrar solicitação no Supabase. Verifique se a coluna valor_esperado_litro existe.')
+        alert('Erro ao registrar solicitação no Supabase. Verifique a tabela coletas.')
       }
     } catch (err) {
       alert('Erro na comunicação com o banco de dados.')
@@ -246,7 +303,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Marketplace
+                  Multimodal
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
@@ -302,13 +359,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      💰 Marketplace & Cotação de OLUC
+                      🚢 Matriz Logística Multimodal & Balsas
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
-                      LubeLoop <span className="text-emerald-400">Plataforma de Coleta</span>
+                      LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Conectando geradores de óleo usado a coletores licenciados pela ANP com cotação por litro em tempo real e rotas GPS otimizadas.
+                      Cálculo de cotação ajustado dinamicamente pela distância terrestre e travessias por balsa / embarcações com regulamentação de carga perigosa.
                     </p>
                   </div>
                 </div>
@@ -360,13 +417,13 @@ export default function App() {
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition-all duration-300 shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cotação Base (-20%)</span>
-                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">💵</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Suporte Multimodal</span>
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🚢</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  R$ 1,20 <span className="text-sm font-bold text-slate-400">a R$ 2,00/L</span>
+                  Balsas <span className="text-sm font-bold text-slate-400">& Rodovia</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Faixa regional conservadora</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Tarifas e HAZMAT ativas</p>
               </div>
 
             </div>
@@ -385,7 +442,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">Informe os dados cadastrais e a sua expectativa de valor pelo resíduo.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Informe os dados cadastrais, modal de transporte e a sua expectativa de valor.</p>
                   </div>
                 </div>
               </div>
@@ -446,64 +503,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bloco de Volume e Expectativa de Valor (Marketplace Conservador) */}
-                <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                      <span>🛢️</span> Volume & Proposta Comercial
-                    </span>
-                    <span className="text-[11px] text-slate-400">Faixa conservadora: R$ 1,20 a R$ 2,00/L</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 mb-1">
-                        Volume Estimado (Litros)
-                      </label>
-                      <input 
-                        type="number" 
-                        required
-                        placeholder="Ex: 1000"
-                        value={novaColeta.volume_estimado}
-                        onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 mb-1">
-                        Valor Esperado por Litro (R$/L)
-                      </label>
-                      <input 
-                        type="number" 
-                        step="0.05"
-                        disabled={novaColeta.cotacao_aberta}
-                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta selecionada" : "Ex: 1.60"}
-                        value={novaColeta.valor_esperado}
-                        onChange={e => setNovaColeta({...novaColeta, valor_esperado: e.target.value})}
-                        className={`w-full border rounded-xl px-4 py-3 text-sm font-mono font-bold transition focus:outline-none ${novaColeta.cotacao_aberta ? 'bg-slate-900/40 border-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-amber-400 focus:border-emerald-500'}`}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Checkbox Cotação Aberta */}
-                  <div className="flex items-center gap-3 pt-2">
-                    <input 
-                      type="checkbox" 
-                      id="checkCotacao"
-                      checked={novaColeta.cotacao_aberta}
-                      onChange={e => setNovaColeta({...novaColeta, cotacao_aberta: e.target.checked, valor_esperado: e.target.checked ? '' : novaColeta.valor_esperado})}
-                      className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900"
-                    />
-                    <label htmlFor="checkCotacao" className="text-xs text-slate-300 font-medium cursor-pointer">
-                      Aceitar a melhor oferta do coletor (<span className="text-emerald-400 font-bold">Cotação Aberta</span>)
-                    </label>
-                  </div>
-
-                  <p className="text-[11px] text-slate-500 leading-relaxed italic border-t border-slate-800/80 pt-3">
-                    💡 <strong>Nota:</strong> O valor final líquido pago pelo coletor homologado fica sujeito ao teste de amostragem (BS&W / teor de água e impurezas) realizado no ato da sucção.
-                  </p>
-                </div>
-
+                {/* Bloco de Localização */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -538,6 +538,86 @@ export default function App() {
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Bloco de Modal de Transporte & Balsas */}
+                <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">🚢</span>
+                    <div>
+                      <label htmlFor="checkBalsa" className="text-xs font-bold text-slate-200 cursor-pointer block">
+                        Acesso requer travessia por Balsa ou Transporte Fluvial?
+                      </label>
+                      <span className="text-[11px] text-slate-400">Ajusta o frete considerando tarifação de eixos/PBT e regulação HAZMAT na embarcação.</span>
+                    </div>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    id="checkBalsa"
+                    checked={novaColeta.requer_balsa}
+                    onChange={e => setNovaColeta({...novaColeta, requer_balsa: e.target.checked})}
+                    className="w-5 h-5 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer"
+                  />
+                </div>
+
+                {/* Bloco de Volume e Precificação Ajustada pela Distância e Balsa */}
+                <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                      <span>📍</span> Matriz Logística ({benchmarkAtual.nomeZona})
+                    </span>
+                    <span className="text-xs text-amber-300 font-mono font-bold">
+                      Sugestão: {benchmarkAtual.faixaTexto}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Volume Estimado (Litros)
+                      </label>
+                      <input 
+                        type="number" 
+                        required
+                        placeholder="Ex: 1000"
+                        value={novaColeta.volume_estimado}
+                        onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Valor Esperado por Litro (R$/L)
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        disabled={novaColeta.cotacao_aberta}
+                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta selecionada" : "Ex: 1.30"}
+                        value={novaColeta.valor_esperado}
+                        onChange={e => setNovaColeta({...novaColeta, valor_esperado: e.target.value})}
+                        className={`w-full border rounded-xl px-4 py-3 text-sm font-mono font-bold transition focus:outline-none ${novaColeta.cotacao_aberta ? 'bg-slate-900/40 border-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-amber-400 focus:border-emerald-500'}`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Checkbox Cotação Aberta */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <input 
+                      type="checkbox" 
+                      id="checkCotacao"
+                      checked={novaColeta.cotacao_aberta}
+                      onChange={e => setNovaColeta({...novaColeta, cotacao_aberta: e.target.checked, valor_esperado: e.target.checked ? '' : novaColeta.valor_esperado})}
+                      className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900"
+                    />
+                    <label htmlFor="checkCotacao" className="text-xs text-slate-300 font-medium cursor-pointer">
+                      Aceitar a melhor oferta do coletor (<span className="text-emerald-400 font-bold">Cotação Aberta</span>)
+                    </label>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed italic border-t border-slate-800/80 pt-3">
+                    💡 <strong>Critério Logístico:</strong> As tarifas de travessia aquaviária e pedágios pesados são incorporados ao desconto de frete do caminhão-tanque no ato da medição de amostragem (BS&W).
+                  </p>
                 </div>
 
                 <button 
