@@ -53,7 +53,7 @@ export default function App() {
   // Controle de Senha para Matriz de Custos
   const [senhaMatriz, setSenhaMatriz] = useState('')
   const [matrizLiberada, setMatrizLiberada] = useState(false)
-  const SENHA_ADMIN = 'biopetro2026'
+  const SENHA_ADMIN = 'Zaca1304'
 
   // SIMULADOR DE CENÁRIOS (STRESS TEST)
   const [simuladorCenario, setSimuladorCenario] = useState({
@@ -90,7 +90,6 @@ export default function App() {
     estado_base_transbordo: 'ES', estado_destinacao_final: 'SP', endereco: '', cidade: 'Vitória', estado: 'ES'
   })
 
-  // DRE CALCULADA SILENCIOSAMENTE NOS BASTIDORES
   const [breakdownAtual, setBreakdownAtual] = useState({
     tetoSugerido: '1.51'
   })
@@ -192,7 +191,6 @@ export default function App() {
     return sistemas
   }
 
-  // CÁLCULO DRE OCULTO (BASTIDORES)
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -392,34 +390,41 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
         
-        {/* DASHBOARD COM KPIS EM DESTAQUE NO TOPO */}
+        {/* DASHBOARD COM KPIS MAIORES E EM DESTAQUE NO TOPO */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl">
-                <span className="text-xs font-bold text-slate-400 uppercase">Volume em Cotação</span>
-                <h3 className="text-3xl font-black text-white mt-2">{coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-sm text-emerald-400">Litros</span></h3>
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-500/30 rounded-3xl p-7 shadow-2xl">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest block mb-2">Volume em Cotação</span>
+                <h3 className="text-4xl font-black text-white">{coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-base text-emerald-400">Litros</span></h3>
+                <p className="text-xs text-slate-500 mt-2">Total de óleo em negociação</p>
               </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl">
-                <span className="text-xs font-bold text-slate-400 uppercase">Agentes ANP Ativos</span>
-                <h3 className="text-3xl font-black text-indigo-400 mt-2">{unidades.length} <span className="text-sm text-slate-400">Homologados</span></h3>
+              <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-indigo-500/30 rounded-3xl p-7 shadow-2xl">
+                <span className="text-xs font-bold text-indigo-400 uppercase tracking-widest block mb-2">Agentes ANP Ativos</span>
+                <h3 className="text-4xl font-black text-indigo-400">{unidades.length} <span className="text-base text-slate-400">Homologados</span></h3>
+                <p className="text-xs text-slate-500 mt-2">Plataforma DPP / Central ANP</p>
               </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl">
-                <span className="text-xs font-bold text-slate-400 uppercase">Armazenamento</span>
-                <h3 className="text-3xl font-black text-cyan-400 mt-2">{unidades.filter(u => u.tipo === 'transbordo').length} <span className="text-sm text-slate-400">Bases</span></h3>
+              <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-cyan-500/30 rounded-3xl p-7 shadow-2xl">
+                <span className="text-xs font-bold text-cyan-400 uppercase tracking-widest block mb-2">Armazenamento (Bases)</span>
+                <h3 className="text-4xl font-black text-cyan-400">{unidades.filter(u => u.tipo === 'transbordo').length} <span className="text-base text-slate-400">Entrepostos</span></h3>
+                <p className="text-xs text-slate-500 mt-2">Coletores e transbordos</p>
               </div>
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl">
-                <span className="text-xs font-bold text-slate-400 uppercase">Usinas Rerrefino</span>
-                <h3 className="text-3xl font-black text-purple-400 mt-2">{unidades.filter(u => u.tipo === 'rerrefino').length} <span className="text-sm text-slate-400">Usinas</span></h3>
+              <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-purple-500/30 rounded-3xl p-7 shadow-2xl">
+                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest block mb-2">Usinas de Rerrefino</span>
+                <h3 className="text-4xl font-black text-purple-400">{unidades.filter(u => u.tipo === 'rerrefino').length} <span className="text-base text-slate-400">Outorgadas</span></h3>
+                <p className="text-xs text-slate-500 mt-2">Destinação final autorizada</p>
               </div>
             </div>
 
             <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
               <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <h3 className="text-xl font-black text-white">Relação de Agentes Regulados Autorizados</h3>
+                <div>
+                  <h3 className="text-xl font-black text-white">Relação de Agentes Regulados Autorizados (ANP)</h3>
+                  <p className="text-xs text-slate-400">Dados integrados diretamente na base nativa da LubeLoop.</p>
+                </div>
                 <input 
                   type="text" placeholder="🔍 Pesquisar na base ANP..." value={buscaAnp} onChange={e => setBuscaAnp(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white"
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white w-full md:w-80"
                 />
               </div>
 
