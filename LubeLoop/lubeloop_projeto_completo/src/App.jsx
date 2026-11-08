@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Inicialização da conexão ao Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = (supabaseUrl && supabaseAnonKey) 
@@ -12,7 +11,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [coletas, setColetas] = useState([])
   const [loading, setLoading] = useState(false)
-  const [buscandoDocumento, setBuscandoDocumento] = useState(false)
+  const [buscandoDoc, setBuscandoDoc] = useState(false)
 
   const [novaColeta, setNovaColeta] = useState({
     gerador: '',
@@ -24,11 +23,8 @@ export default function App() {
     estado: 'ES'
   })
 
-  // Carregar coletas do Supabase
   useEffect(() => {
-    if (supabase) {
-      buscarColetas()
-    }
+    if (supabase) buscarColetas()
   }, [])
 
   const buscarColetas = async () => {
@@ -38,10 +34,7 @@ export default function App() {
         .from('coletas')
         .select('*')
         .order('created_at', { ascending: false })
-
-      if (!error && data) {
-        setColetas(data)
-      }
+      if (!error && data) setColetas(data)
     } catch (err) {
       console.error("Erro ao carregar coletas:", err)
     } finally {
@@ -49,16 +42,14 @@ export default function App() {
     }
   }
 
-  // Consulta inteligente: CPF no Supabase vs CNPJ na Receita/Sintegra
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
-
     const docLimpo = valorDigitado.replace(/\D/g, '')
 
-    // 1. CPF (11 dígitos): Busca histórico de cliente no Supabase
+    // 1. CPF (11 dígitos): Consulta histórico no Supabase
     if (docLimpo.length === 11) {
-      setBuscandoDocumento(true)
+      setBuscandoDoc(true)
       try {
         if (supabase) {
           const { data } = await supabase
@@ -79,36 +70,32 @@ export default function App() {
               estado: data.estado || prev.estado
             }))
           } else {
-            setNovaColeta(prev => ({
-              ...prev,
-              inscricao_estadual: 'Isento (Pessoa Física)'
-            }))
+            setNovaColeta(prev => ({ ...prev, inscricao_estadual: 'Isento (Pessoa Física)' }))
           }
         }
       } catch (err) {
-        console.error("Erro ao buscar CPF no banco:", err)
+        console.error("Erro ao buscar CPF:", err)
       } finally {
-        setBuscandoDocumento(false)
+        setBuscandoDoc(false)
       }
     }
 
     // 2. CNPJ (14 dígitos): Consulta Receita Federal e Sintegra por UF
     if (docLimpo.length === 14) {
-      setBuscandoDocumento(true)
+      setBuscandoDoc(true)
       const ehFilial = !docLimpo.substring(8, 12).includes('0001')
 
       try {
         const response = await fetch(`https://publica.cnpj.ws/cnpj/${docLimpo}`)
-        
         if (response.ok) {
           const data = await response.json()
           const est = data.estabelecimento || {}
-          const ufDoEstado = est.estado?.sigla || ''
+          const uf = est.estado?.sigla || ''
           const ieArray = est.inscricoes_estaduais || []
 
           let ieEncontrada = ''
           if (ieArray.length > 0) {
-            const ieDoEstado = ieArray.filter(item => item.estado?.sigla === ufDoEstado && item.ativo !== false)
+            const ieDoEstado = ieArray.filter(i => i.estado?.sigla === uf && i.ativo !== false)
             if (ehFilial && ieDoEstado.length > 1) {
               ieEncontrada = ieDoEstado[ieDoEstado.length - 1].inscricao_estadual || ''
             } else if (ieDoEstado.length === 1) {
@@ -126,13 +113,13 @@ export default function App() {
             inscricao_estadual: ieEncontrada || 'Isento / Não cadastrado',
             endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}${est.bairro ? ' - ' + est.bairro : ''}`,
             cidade: est.cidade?.nome || prev.cidade,
-            estado: ufDoEstado || prev.estado
+            estado: uf || prev.estado
           }))
         }
       } catch (err) {
-        console.error("Erro na busca do CNPJ:", err)
+        console.error("Erro na busca de CNPJ:", err)
       } finally {
-        setBuscandoDocumento(false)
+        setBuscandoDoc(false)
       }
     }
   }
@@ -143,7 +130,7 @@ export default function App() {
 
     setLoading(true)
     try {
-      const { data, error } = await supabase.from('coletas').insert([
+      const { error } = await supabase.from('coletas').insert([
         {
           gerador_nome: novaColeta.gerador,
           cnpj: novaColeta.cnpj,
@@ -161,7 +148,7 @@ export default function App() {
         buscarColetas()
         setActiveTab('coletas')
       } else {
-        alert('Erro ao registar solicitação. Verifique as permissões no Supabase.')
+        alert('Erro ao registrar solicitação no Supabase.')
       }
     } catch (err) {
       alert('Erro na comunicação com o banco de dados.')
@@ -172,7 +159,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Barra de Navegação */}
       <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center font-black text-slate-950 text-xl shadow-lg shadow-emerald-500/20">
@@ -213,7 +199,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -268,7 +253,7 @@ export default function App() {
               <div>
                 <label className="block text-xs text-slate-300 mb-1 font-semibold flex items-center justify-between">
                   <span>CPF ou CNPJ do Gerador</span>
-                  {buscandoDocumento && <span className="text-emerald-400 animate-pulse font-normal">🔍 Consultando dados...</span>}
+                  {buscandoDoc && <span className="text-emerald-400 animate-pulse font-normal">🔍 Consultando dados...</span>}
                 </label>
                 <input 
                   type="text" 
@@ -323,4 +308,121 @@ export default function App() {
                     placeholder="Ex: 1000"
                     value={novaColeta.volume_estimado}
                     onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})}
-                    className="w-full bg-slate-9
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Endereço Completo</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Rua, Número, Bairro"
+                    value={novaColeta.endereco}
+                    onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Cidade</label>
+                  <input 
+                    type="text" 
+                    value={novaColeta.cidade}
+                    onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-300 mb-1">Estado (UF)</label>
+                  <input 
+                    type="text" 
+                    value={novaColeta.estado}
+                    onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loading || buscandoDoc}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-emerald-500/20 mt-4"
+              >
+                {loading ? 'A registrar...' : 'Confirmar Solicitação'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {activeTab === 'coletas' && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-white">Ordens de Coleta Registadas</h2>
+                <p className="text-xs text-slate-400">Listagem de solicitações com validação fiscal no Supabase</p>
+              </div>
+              <button 
+                onClick={buscarColetas}
+                className="bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition"
+              >
+                ↻ Atualizar Dados
+              </button>
+            </div>
+
+            {loading ? (
+              <div className="py-12 text-center text-slate-400 text-sm">A carregar registos do banco de dados...</div>
+            ) : coletas.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-xl">
+                Nenhuma solicitação encontrada no Supabase. Crie a primeira na aba "Nova Solicitação".
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm text-slate-300">
+                  <thead className="bg-slate-950 text-xs text-slate-400 uppercase tracking-wider">
+                    <tr>
+                      <th className="p-3 rounded-l-lg">Gerador</th>
+                      <th className="p-3">Inscrição Estadual</th>
+                      <th className="p-3">Volume</th>
+                      <th className="p-3">Localização</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3 rounded-r-lg">MTR SINIR</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {coletas.map((item, idx) => (
+                      <tr key={item.id || idx} className="hover:bg-slate-800/50">
+                        <td className="p-3 font-semibold text-white">
+                          {item.gerador_nome || 'Gerador sem nome'}
+                          <span className="block text-xs font-normal text-slate-400">{item.cnpj}</span>
+                        </td>
+                        <td className="p-3 text-xs font-mono text-indigo-300">
+                          {item.inscricao_estadual || 'Isento / Não informada'}
+                        </td>
+                        <td className="p-3 font-mono text-emerald-400 font-semibold">
+                          {item.volume_estimado_litros} L
+                        </td>
+                        <td className="p-3 text-xs text-slate-300">
+                          {item.cidade}/{item.estado}
+                        </td>
+                        <td className="p-3">
+                          <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            {item.status || 'Pendente'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-xs font-mono text-slate-400">
+                          {item.mtr_numero || 'Pendente de emissão'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
