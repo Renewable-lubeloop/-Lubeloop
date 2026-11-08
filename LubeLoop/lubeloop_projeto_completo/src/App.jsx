@@ -39,7 +39,6 @@ const supabase = (supabaseUrl && supabaseAnonKey)
   : null
 
 export default function App() {
-  // A aba padrão agora é 'solicitar' para que a captação de receita fique em primeiro plano
   const [activeTab, setActiveTab] = useState('solicitar')
   const [coletas, setColetas] = useState([])
   const [unidades, setUnidades] = useState([])
@@ -47,7 +46,6 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [buscandoDocUnidade, setBuscandoDocUnidade] = useState(false)
-  const [modalCdf, setModalCdf] = useState(null)
   const [filtroTipoDashboard, setFiltroTipoDashboard] = useState('todos')
   const [filtroRegiao, setFiltroRegiao] = useState('todas')
   const [salvandoCustos, setSalvandoCustos] = useState(false)
@@ -87,7 +85,7 @@ export default function App() {
   const [novaColeta, setNovaColeta] = useState({
     gerador: '', cnpj: '', inscricao_estadual: '', licenca_operacao: 'LO-AMB 4859/2026', lo_valida: true,
     volume_estimado: '', valor_esperado: '', cotacao_aberta: true, requer_balsa: false, tem_transbordo: true,
-    estado_base_transbordo: 'ES', estado_destinacao_final: 'SP', endereco: '', cidade: 'Vitória', estado: 'ES'
+    estado_base_transbordo: 'ES', estado_destinacao_final: 'SP', endereco: '', bairro: '', cidade: 'Vitória', estado: 'ES'
   })
 
   const [breakdownAtual, setBreakdownAtual] = useState({
@@ -288,16 +286,6 @@ export default function App() {
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
     const docLimpo = valorDigitado.replace(/\D/g, '')
 
-    if (docLimpo.length === 11 && supabase) {
-      setBuscandoDoc(true)
-      try {
-        const { data } = await supabase.from('coletas').select('*').eq('cnpj', valorDigitado).limit(1).maybeSingle()
-        if (data) {
-          setNovaColeta(prev => ({ ...prev, gerador: data.gerador_nome || prev.gerador, endereco: data.endereco || prev.endereco, cidade: data.cidade || prev.cidade, estado: data.estado || prev.estado }))
-        }
-      } finally { setBuscandoDoc(false) }
-    }
-
     if (docLimpo.length === 14) {
       setBuscandoDoc(true)
       try {
@@ -305,10 +293,13 @@ export default function App() {
         if (response.ok) {
           const data = await response.json()
           const est = data.estabelecimento || {}
+          const inscEst = est.inscricoes_estaduais?.[0]?.numero || 'Isento / Não Localizado'
           setNovaColeta(prev => ({
             ...prev,
             gerador: data.razao_social || est.nome_fantasia || prev.gerador,
+            inscricao_estadual: inscEst,
             endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}`,
+            bairro: est.bairro || '',
             cidade: est.cidade?.nome || prev.cidade,
             estado: est.estado?.sigla || prev.estado
           }))
@@ -340,6 +331,7 @@ export default function App() {
             ...prev,
             razao_social: json.razao_social || '',
             nome_fantasia: est.nome_fantasia || json.razao_social || '',
+            inscricao_estadual: est.inscricoes_estaduais?.[0]?.numero || '',
             estado: uf,
             regiao: reg,
             cidade: est.cidade?.nome || '',
@@ -364,7 +356,7 @@ export default function App() {
   const handleCriarSolicitacao = async (e) => {
     e.preventDefault()
     if (!supabase) {
-      const nova = { id: Date.now(), gerador_nome: novaColeta.gerador, cnpj: novaColeta.cnpj, volume_estimado_litros: parseFloat(novaColeta.volume_estimado), valor_esperado_litro: 'Cotação Aberta', mtr_numero: `Cadeia Multi-MTR: ${cadeiaMtrAtual.join(' → ')}`, endereco: novaColeta.endereco, cidade: novaColeta.cidade, estado: novaColeta.estado }
+      const nova = { id: Date.now(), gerador_nome: novaColeta.gerador, cnpj: novaColeta.cnpj, inscricao_estadual: novaColeta.inscricao_estadual, volume_estimado_litros: parseFloat(novaColeta.volume_estimado), valor_esperado_litro: `R$ ${breakdownAtual.tetoSugerido}/L`, mtr_numero: `Cadeia Multi-MTR: ${cadeiaMtrAtual.join(' → ')}`, endereco: novaColeta.endereco, cidade: novaColeta.cidade, estado: novaColeta.estado }
       setColetas(prev => [nova, ...prev])
       setActiveTab('coletas')
       return
@@ -376,7 +368,7 @@ export default function App() {
         cnpj: novaColeta.cnpj,
         inscricao_estadual: novaColeta.inscricao_estadual || 'Isento',
         volume_estimado_litros: parseFloat(novaColeta.volume_estimado),
-        valor_esperado_litro: novaColeta.cotacao_aberta ? 'Cotação Aberta' : `R$ ${novaColeta.valor_esperado}/L`,
+        valor_esperado_litro: `R$ ${breakdownAtual.tetoSugerido}/L`,
         mtr_numero: `Cadeia Multi-MTR: ${cadeiaMtrAtual.join(' → ')}`,
         endereco: novaColeta.endereco, cidade: novaColeta.cidade, estado: novaColeta.estado
       }])
@@ -413,7 +405,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* NAVEGAÇÃO SUPERIOR COM NOVA COLETA DESTACADA */}
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80">
             <button onClick={() => setActiveTab('solicitar')} className={`px-4 py-2 rounded-xl text-xs font-black transition ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-emerald-400 hover:text-white'}`}>⚡ Nova Coleta</button>
             <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'dashboard' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>📊 Painel ANP</button>
@@ -427,7 +418,7 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
         
-        {/* ABA PRINCIPAL DE ENTRADA: NOVA SOLICITAÇÃO DE COLETA (EM DESTAQUE FRONTAL) */}
+        {/* ABA PRINCIPAL DE ENTRADA: NOVA SOLICITAÇÃO DE COLETA COM DADOS COMPLETOS E VALOR POR REGIÃO */}
         {activeTab === 'solicitar' && (
           <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
             
@@ -440,22 +431,35 @@ export default function App() {
                   Nova Solicitação de <span className="text-emerald-400">Coleta de OLUC</span>
                 </h2>
                 <p className="text-slate-400 text-sm mt-1">
-                  Cadastre a ordem de coleta para ativar o teto de cotação e iniciar a operação logística integrada aos órgãos reguladores.
+                  Insira o CNPJ para carregar os dados cadastrais completos (Razão Social, Inscrição Estadual e Endereço) e visualizar o preço base por região.
                 </p>
               </div>
             </div>
 
             <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl">
               <form onSubmit={handleCriarSolicitacao} className="space-y-6">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">CPF ou CNPJ do Gerador</label>
-                  <input type="text" required value={novaColeta.cnpj} onChange={handleDocumentoChange} placeholder="Digite para buscar dados na Receita..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
-                </div>
-
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Razão Social / Nome do Gerador</label>
-                    <input type="text" required value={novaColeta.gerador} onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">CNPJ do Gerador</label>
+                    <input type="text" required value={novaColeta.cnpj} onChange={handleDocumentoChange} placeholder="00.000.000/0001-00 (Busca Automática)" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
+                    {buscandoDoc && <span className="text-[10px] text-emerald-400 mt-1 block">Consultando dados na Receita Federal...</span>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Inscrição Estadual (IE)</label>
+                    <input type="text" value={novaColeta.inscricao_estadual} onChange={e => setNovaColeta({...novaColeta, inscricao_estadual: e.target.value})} placeholder="Inscrição Estadual" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Razão Social / Nome do Gerador</label>
+                  <input type="text" required value={novaColeta.gerador} onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})} placeholder="Nome empresarial preenchido via CNPJ" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Endereço Completo (Logradouro e Número)</label>
+                    <input type="text" required value={novaColeta.endereco} onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})} placeholder="Rua, Número, Bairro" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-emerald-400 uppercase mb-1">Volume Estimado (Litros)</label>
@@ -463,26 +467,26 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Endereço Completo</label>
-                    <input type="text" required value={novaColeta.endereco} onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})} placeholder="Rua, Número, Bairro" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cidade</label>
+                    <input type="text" value={novaColeta.cidade} onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cidade</label>
-                      <input type="text" value={novaColeta.cidade} onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">UF</label>
-                      <input type="text" value={novaColeta.estado} onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white uppercase" />
-                    </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">UF (Estado)</label>
+                    <input type="text" value={novaColeta.estado} onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white uppercase" />
                   </div>
                 </div>
 
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
-                  <span>Validação Econômica de Rota Aplicada nos Bastidores</span>
-                  <span className="text-emerald-400 font-mono font-bold">Teto Automático Ativo</span>
+                {/* PAINEL DE APRESENTAÇÃO DO VALOR BASE E TETO POR REGIÃO */}
+                <div className="bg-gradient-to-r from-slate-950 to-emerald-950/30 p-5 rounded-2xl border border-emerald-500/40 flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div>
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block">Remuneração Base da Operação por Região ({novaColeta.estado})</span>
+                    <p className="text-xs text-slate-400 mt-0.5">Calculado automaticamente com base nos custos logísticos estaduais (CCT e frete de transbordo).</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-3xl font-black text-emerald-400 font-mono">R$ {breakdownAtual.tetoSugerido} <span className="text-xs text-slate-400 font-sans">/ Litro</span></span>
+                  </div>
                 </div>
 
                 <button type="submit" className="w-full bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 text-slate-950 font-black py-4 rounded-2xl text-xs uppercase tracking-wider shadow-xl transition transform hover:scale-[1.01]">
@@ -648,8 +652,8 @@ export default function App() {
             ) : (
               coletas.map(c => (
                 <div key={c.id} className="p-3 bg-slate-950 rounded-xl mb-2 flex justify-between border border-slate-800">
-                  <span>{c.gerador_nome} ({c.cidade}/{c.estado})</span>
-                  <span className="text-emerald-400 font-bold">{c.volume_estimado_litros} L</span>
+                  <span>{c.gerador_nome} ({c.cidade}/{c.estado}) — IE: {c.inscricao_estadual || 'Isento'}</span>
+                  <span className="text-emerald-400 font-bold">{c.volume_estimado_litros} L ({c.valor_esperado_litro})</span>
                 </div>
               ))
             )}
