@@ -69,8 +69,8 @@ export default function App() {
     cotacao_aberta: true,
     requer_balsa: false,
     tem_transbordo: true,
-    estado_base_transbordo: 'ES',
-    estado_destinacao_final: 'SP',
+    estado_base_transbordo: 'ES', // ex: Serra/ES
+    estado_destinacao_final: 'SP', // ex: Rerrefino SP
     endereco: '',
     cidade: 'Serra',
     estado: 'ES'
@@ -128,72 +128,108 @@ export default function App() {
     return sistemas
   }
 
-  // Motor de Cálculo de Custos Totais da Operação (Mão de Obra, Diesel, Pneus e Adm)
-  const getCalculoLogisticoDetalhado = (cidade, estado, volumeLitros, requerBalsa) => {
+  // Algoritmo DRE Completo com Frete de Transbordo por Proximidade de Usina
+  const getCalculoLogisticoDetalhado = (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
     const cid = (cidade || '').toLowerCase().trim()
+    const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
+    const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
-    // 1. Cotação de Referência Bruta do Rerrefino Nacional (Preço de Balcão Usina)
+    // 1. Cotação Bruta de Referência do Rerrefino Nacional (Preço Balcão Usina)
     const precoBrutoRerrefino = 2.40 
 
-    // 2. Parâmetros Trabalhistas por UF (Salário + Periculosidade 30% + Encargos CCT 72% + Diárias/Benefícios)
-    // Custo de Mão de Obra por Litro varia com a densidade populacional/CCT do Sindicato da Categoria
+    // 2. Mão de Obra e Folha CCT por UF
     const custosTrabalhistasUF = {
       'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
     }
     let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
 
-    // Ajuste de diluição de Mão de Obra por Escala de Volume
     if (vol >= 2000) custoMaoDeObraMotorista *= 0.60
     else if (vol >= 500) custoMaoDeObraMotorista *= 0.80
 
-    // 3. Custos de Insumos do Veículo (Diesel S10, Arla 32, Desgaste de Pneus e Manutenção Preventiva)
-    let custoDieselPneusMaint = 0.32
-    if (vol >= 2000) custoDieselPneusMaint = 0.20
-    else if (vol >= 500) custoDieselPneusMaint = 0.26
+    // 3. Coleta Capilar Local (Diesel, Pneus e Manutenção)
+    let custoDieselPneusMaint = 0.30
+    if (vol >= 2000) custoDieselPneusMaint = 0.18
+    else if (vol >= 500) custoDieselPneusMaint = 0.24
 
-    // Ajuste de Distância e Zona Logística
     const cidadesHub = ['serra', 'vitoria', 'vitória', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      custoDieselPneusMaint -= 0.05
-    } else if (!['ES', 'MG', 'RJ'].includes(uf)) {
-      custoDieselPneusMaint += 0.15 // Frete longo curso
+      custoDieselPneusMaint -= 0.04
     }
 
-    // 4. Custos Administrativos e Fixos da Empresa Coletora (Overhead, Licenças Ambientais, Telemetria)
+    // 4. FRETE DE TRANSBORDO / TRANSFERÊNCIA DA BASE DE APOIO ATÉ A USINA MAIS PRÓXIMA
+    // Matriz de distâncias entre entreposto e usinas de rerrefino autorizadas
+    let custoFreteTransbordo = 0.00
+    let nomeUsinaProxima = 'Envio Direto Usina'
+
+    if (temTransbordo) {
+      if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') {
+        custoFreteTransbordo = 0.15
+        nomeUsinaProxima = 'Base ES ➔ Usina RJ (~520 km)'
+      } else if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'SP') {
+        custoFreteTransbordo = 0.22
+        nomeUsinaProxima = 'Base ES ➔ Usina SP (~940 km)'
+      } else if (ufBaseArmazenamento === 'MG' && ufUsinaRerrefino === 'SP') {
+        custoFreteTransbordo = 0.16
+        nomeUsinaProxima = 'Base MG ➔ Usina SP (~580 km)'
+      } else if (ufBaseArmazenamento === 'RJ' && ufUsinaRerrefino === 'SP') {
+        custoFreteTransbordo = 0.12
+        nomeUsinaProxima = 'Base RJ ➔ Usina SP (~430 km)'
+      } else {
+        custoFreteTransbordo = 0.18 // Média regional de longo curso em carreta de 35m³
+        nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
+      }
+    }
+
+    // 5. Custos Administrativos e Licenças
     const custosAdministrativos = 0.18
 
-    // 5. Custo de Travessia Fluvial / Balsa (Se houver)
+    // 6. Custo de Travessia Fluvial / Balsa
     const custoBalsa = requerBalsa ? 0.35 : 0.00
 
-    // 6. Total de Custos Operacionais Deduzeitores
-    const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custosAdministrativos + custoBalsa
+    // 7. Total de Deduções
+    const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
     
-    // 7. Teto Recomendado ao Gerador
-    const valorLiquidoMaximo = Math.max(0.50, precoBrutoRerrefino - deducoesTotais)
-    const valorLiquidoMinimo = Math.max(0.40, valorLiquidoMaximo * 0.75)
+    // 8. Teto Sugerido ao Gerador
+    const valorLiquidoMaximo = Math.max(0.40, precoBrutoRerrefino - deducoesTotais)
+    const valorLiquidoMinimo = Math.max(0.30, valorLiquidoMaximo * 0.75)
 
     let nomeZona = 'Rota Terrestre Regular'
     if (uf === 'ES' && cidadesHub.includes(cid)) nomeZona = 'Hub Direto (Baixo Frete)'
-    else if (!['ES', 'MG', 'RJ'].includes(uf)) nomeZona = 'Longo Curso (Transbordo Interestadual)'
-    if (requerBalsa) nomeZona += ' + Travessia Balsa/Fluvial'
+    if (requerBalsa) nomeZona += ' + Travessia Balsa'
 
     return {
       precoBrutoRerrefino: precoBrutoRerrefino.toFixed(2),
       custoMaoDeObraMotorista: custoMaoDeObraMotorista.toFixed(2),
       custoDieselPneusMaint: custoDieselPneusMaint.toFixed(2),
+      custoFreteTransbordo: custoFreteTransbordo.toFixed(2),
       custosAdministrativos: custosAdministrativos.toFixed(2),
       custoBalsa: custoBalsa.toFixed(2),
       deducoesTotais: deducoesTotais.toFixed(2),
       tetoSugerido: valorLiquidoMaximo.toFixed(2),
       faixaTexto: `R$ ${valorLiquidoMinimo.toFixed(2)} a R$ ${valorLiquidoMaximo.toFixed(2)} / L`,
+      nomeUsinaProxima,
       nomeZona
     }
   }
 
-  const breakdownAtual = getCalculoLogisticoDetalhado(novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, novaColeta.requer_balsa)
-  const cadeiaMtrAtual = getCadeiaMtrCompleta(novaColeta.estado, novaColeta.tem_transbordo, novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final)
+  const breakdownAtual = getCalculoLogisticoDetalhado(
+    novaColeta.cidade, 
+    novaColeta.estado, 
+    novaColeta.volume_estimado, 
+    novaColeta.requer_balsa, 
+    novaColeta.tem_transbordo, 
+    novaColeta.estado_base_transbordo, 
+    novaColeta.estado_destinacao_final
+  )
+  
+  const cadeiaMtrAtual = getCadeiaMtrCompleta(
+    novaColeta.estado, 
+    novaColeta.tem_transbordo, 
+    novaColeta.estado_base_transbordo, 
+    novaColeta.estado_destinacao_final
+  )
 
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
@@ -296,7 +332,7 @@ export default function App() {
 
       if (valDigitado > teto + 0.30) {
         const aceita = window.confirm(
-          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera os custos operacionais (mão de obra CCT, combustível, pneus e administração) calculados para sua região (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
+          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera os custos operacionais (mão de obra CCT, frete de transbordo da base, diesel e pneus) calculados para sua rota (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
         )
         if (!aceita) return
       }
@@ -395,7 +431,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  DRE & Margem Operacional
+                  DRE & Logística Transbordo
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
@@ -453,13 +489,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      💼 Algoritmo de DRE e Custos Trabalhistas/Insumos
+                      🚚 Cálculo de Frete da Base Intermediária até o Rerrefino
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Composição financeira com folha trabalhista CCT, periculosidade, diesel S10, recapagem de pneus, insumos e taxa administrativa por estado.
+                      DRE completa integrando folha de motoristas CCT, periculosidade, insumos, administração e o frete de transferência entre entrepostos e usinas licenciadas.
                     </p>
                   </div>
                 </div>
@@ -566,7 +602,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM DRE COMPLETA */}
+        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM DRE COMPLETA E FRETE DE TRANSBORDO */}
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto animate-fadeIn">
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
@@ -577,7 +613,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">DRE Logística completa: Folha CCT Motoristas, Diesel, Pneus e Administração.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">DRE Logística: Folha CCT, Coleta Capilar, Transbordo e Usina mais próxima.</p>
                   </div>
                 </div>
               </div>
@@ -711,11 +747,11 @@ export default function App() {
                   />
                 </div>
 
-                {/* Roteamento MTR */}
+                {/* Roteamento MTR & Transbordo de Base Intermediária */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-cyan-500/30 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
                     <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>📄</span> Roteamento MTR & Transbordo Interestadual
+                      <span>📄</span> Roteamento MTR & Transbordo (Base Intermediária)
                     </span>
                     <span className="text-xs font-mono font-bold text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/30">
                       MTR Origem: {getSistemaMtrOrigem(novaColeta.estado).nome}
@@ -749,28 +785,27 @@ export default function App() {
                           onChange={e => setNovaColeta({...novaColeta, estado_base_transbordo: e.target.value})}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
                         >
-                          <option value="ES">Espírito Santo (ES) - {getSistemaMtrOrigem('ES').nome}</option>
-                          <option value="RJ">Rio de Janeiro (RJ) - {getSistemaMtrOrigem('RJ').nome}</option>
-                          <option value="MG">Minas Gerais (MG) - {getSistemaMtrOrigem('MG').nome}</option>
-                          <option value="SP">São Paulo (SP) - {getSistemaMtrOrigem('SP').nome}</option>
-                          <option value="PR">Paraná (PR) - {getSistemaMtrOrigem('PR').nome}</option>
+                          <option value="ES">Espírito Santo (ES) - Base Serra/ES ({getSistemaMtrOrigem('ES').nome})</option>
+                          <option value="RJ">Rio de Janeiro (RJ) - Base RJ ({getSistemaMtrOrigem('RJ').nome})</option>
+                          <option value="MG">Minas Gerais (MG) - Base MG ({getSistemaMtrOrigem('MG').nome})</option>
+                          <option value="SP">São Paulo (SP) - Base SP ({getSistemaMtrOrigem('SP').nome})</option>
+                          <option value="PR">Paraná (PR) - Base PR ({getSistemaMtrOrigem('PR').nome})</option>
                         </select>
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                          UF do Rerrefinador (Destino Final)
+                          UF do Rerrefinador (Usina Mais Próxima)
                         </label>
                         <select 
                           value={novaColeta.estado_destinacao_final}
                           onChange={e => setNovaColeta({...novaColeta, estado_destinacao_final: e.target.value})}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
                         >
-                          <option value="SP">São Paulo (SP) - {getSistemaMtrOrigem('SP').nome}</option>
-                          <option value="RJ">Rio de Janeiro (RJ) - {getSistemaMtrOrigem('RJ').nome}</option>
-                          <option value="MG">Minas Gerais (MG) - {getSistemaMtrOrigem('MG').nome}</option>
-                          <option value="PR">Paraná (PR) - {getSistemaMtrOrigem('PR').nome}</option>
-                          <option value="RS">Rio Grande do Sul (RS) - {getSistemaMtrOrigem('RS').nome}</option>
-                          <option value="ES">Espírito Santo (ES) - {getSistemaMtrOrigem('ES').nome}</option>
+                          <option value="RJ">Rio de Janeiro (RJ) - Usina Duque de Caxias / RJ</option>
+                          <option value="SP">São Paulo (SP) - Usina Polo Paulínia / SP</option>
+                          <option value="MG">Minas Gerais (MG) - Usina Betim / MG</option>
+                          <option value="PR">Paraná (PR) - Usina Araucária / PR</option>
+                          <option value="RS">Rio Grande do Sul (RS) - Usina Esteio / RS</option>
                         </select>
                       </div>
                     </div>
@@ -839,7 +874,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* CARD VISUAL DRE COMPLETA: MÃO DE OBRA CCT, INSUMOS E ADMINISTRAÇÃO */}
+                {/* CARD VISUAL DRE COMPLETA: INCLUINDO FRETE DE TRANSBORDO BASE ➔ RERREFINADOR */}
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
@@ -854,7 +889,7 @@ export default function App() {
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Decomposição analítica dos custos operacionais envolvidos na coleta de OLUC nesta região:
+                    Composição dos custos de coleta capilar, mão de obra CCT e o <strong>frete de transferência da base para o rerrefino</strong>:
                   </p>
 
                   <div className="space-y-2.5 font-mono text-xs">
@@ -877,14 +912,24 @@ export default function App() {
                       <span className="text-rose-400 font-bold">- R$ {breakdownAtual.custoMaoDeObraMotorista} / L</span>
                     </div>
 
-                    {/* Diesel S10, Pneus e Manutenção */}
+                    {/* Coleta Capilar Local */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                        Diesel S10, Arla 32, Desgaste de Pneus e Manutenção
+                        Coleta Capilar Local (Diesel S10, Pneus e Manutenção)
                       </span>
                       <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoDieselPneusMaint} / L</span>
                     </div>
+
+                    {/* FRETE DE TRANSBORDO / TRANSFERÊNCIA DA BASE PARA O RERREFINADOR */}
+                    {novaColeta.tem_transbordo && (
+                      <div className="flex justify-between items-center bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30">
+                        <span className="text-cyan-300 flex items-center gap-2 font-bold">
+                          <span>🚚</span> Frete Transbordo: {breakdownAtual.nomeUsinaProxima}
+                        </span>
+                        <span className="text-cyan-300 font-bold">- R$ {breakdownAtual.custoFreteTransbordo} / L</span>
+                      </div>
+                    )}
 
                     {/* Custos Administrativos e Licenças */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
