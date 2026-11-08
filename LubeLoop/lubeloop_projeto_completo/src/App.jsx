@@ -360,13 +360,13 @@ export default function App() {
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition-all duration-300 shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cotação Média</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cotação Base (-20%)</span>
                   <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">💵</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  R$ 1,50 <span className="text-sm font-bold text-slate-400">a R$ 2,50/L</span>
+                  R$ 1,20 <span className="text-sm font-bold text-slate-400">a R$ 2,00/L</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Referência regional</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Faixa regional conservadora</p>
               </div>
 
             </div>
@@ -446,13 +446,13 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bloco de Volume e Expectativa de Valor (Marketplace) */}
+                {/* Bloco de Volume e Expectativa de Valor (Marketplace Conservador) */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
                       <span>🛢️</span> Volume & Proposta Comercial
                     </span>
-                    <span className="text-[11px] text-slate-400">Faixa de mercado: R$ 1,50 a R$ 2,50/L</span>
+                    <span className="text-[11px] text-slate-400">Faixa conservadora: R$ 1,20 a R$ 2,00/L</span>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -477,7 +477,7 @@ export default function App() {
                         type="number" 
                         step="0.05"
                         disabled={novaColeta.cotacao_aberta}
-                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta selecionada" : "Ex: 2.10"}
+                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta selecionada" : "Ex: 1.60"}
                         value={novaColeta.valor_esperado}
                         onChange={e => setNovaColeta({...novaColeta, valor_esperado: e.target.value})}
                         className={`w-full border rounded-xl px-4 py-3 text-sm font-mono font-bold transition focus:outline-none ${novaColeta.cotacao_aberta ? 'bg-slate-900/40 border-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-amber-400 focus:border-emerald-500'}`}
