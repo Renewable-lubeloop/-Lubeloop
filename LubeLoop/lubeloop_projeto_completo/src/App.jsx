@@ -46,7 +46,7 @@ export default function App() {
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [modalCdf, setModalCdf] = useState(null)
 
-  // Mapeamento Dinâmico de Sistemas por Estado (Atualizável via Admin/API)
+  // Mapeamento Dinâmico de Sistemas por Estado
   const [sistemasMtrEstaduais, setSistemasMtrEstaduais] = useState({
     'ES': { nome: 'MTR-ES / IEMA', tipo: 'Estadual Próprio (IN 012-N/2022)', ativo: true, tokenConfigurado: true },
     'RJ': { nome: 'MTR-INEA (RJ)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: true },
@@ -66,7 +66,7 @@ export default function App() {
     lo_valida: true,
     volume_estimado: '',
     valor_esperado: '',
-    cotacao_aberta: false,
+    cotacao_aberta: true, // Padronizado em Cotação Aberta (Leilão Reverso)
     requer_balsa: false,
     tem_transbordo: true,
     estado_base_transbordo: 'ES',
@@ -95,7 +95,6 @@ export default function App() {
     }
   }
 
-  // Roteador Dinâmico de MTR (Checa se o Estado migrou para sistema próprio ou SINIR)
   const getSistemaMtrOrigem = (uf) => {
     const estado = (uf || '').toUpperCase().trim()
     if (sistemasMtrEstaduais[estado] && sistemasMtrEstaduais[estado].ativo) {
@@ -104,7 +103,6 @@ export default function App() {
     return { nome: 'SINIR Nacional (IBAMA)', tipo: 'Nacional Integrado', tokenConfigurado: true }
   }
 
-  // Alternar configuração do estado (Nacional vs Estadual)
   const toggleSistemaEstado = (uf) => {
     setSistemasMtrEstaduais(prev => ({
       ...prev,
@@ -115,7 +113,6 @@ export default function App() {
     }))
   }
 
-  // Cálculo de Rota Multiestadual de MTR (Cadeia de Custódia de OLUC)
   const getCadeiaMtrCompleta = (ufOrigem, temTransbordo, ufBase, ufDestino) => {
     const mtrOrigem = getSistemaMtrOrigem(ufOrigem)
     const sistemas = [mtrOrigem.nome]
@@ -131,57 +128,59 @@ export default function App() {
     return sistemas
   }
 
-  // Precificação Ajustada pela Matriz Logística
-  const getBenchmarkLogistico = (cidade, estado, volumeLitros, requerBalsa) => {
+  // Motor de Cálculo Avançado com Composição Financeira Logística (Breakdown)
+  const getCalculoLogisticoDetalhado = (cidade, estado, volumeLitros, requerBalsa) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
     const cid = (cidade || '').toLowerCase().trim()
 
-    let multiplicadorZona = 1.0
-    let nomeZona = 'Rota Regular'
+    // 1. Referência do Rerrefino Nacional (Preço Bruto de Balcão)
+    const precoBrutoRerrefino = 2.40 
 
+    // 2. Desconto de Escala por Volume (Frete diluído por parada)
+    let custoFretePorLitro = 0.70
+    if (vol >= 2000) custoFretePorLitro = 0.40
+    else if (vol >= 500) custoFretePorLitro = 0.55
+
+    // 3. Ajuste por Distância até a Base
     const cidadesHub = ['serra', 'vitoria', 'vitória', 'vila velha', 'cariacica', 'viana']
+    let custoDistanciaAdicional = 0.00
 
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      multiplicadorZona = 1.10
-      nomeZona = 'Hub Direto'
-    } else if (['ES', 'MG', 'RJ'].includes(uf)) {
-      multiplicadorZona = 1.00
-      nomeZona = 'Rota Terrestre Regular'
-    } else {
-      multiplicadorZona = 0.80
-      nomeZona = 'Longo Curso'
+      custoDistanciaAdicional = -0.10 // Desconto de frete (Hub próximo)
+    } else if (!['ES', 'MG', 'RJ'].includes(uf)) {
+      custoDistanciaAdicional = 0.35 // Longo curso / Transbordo interestadual
     }
 
-    if (requerBalsa) {
-      multiplicadorZona *= 0.80
-      nomeZona += ' + Travessia Balsa/Fluvial'
-    }
+    // 4. Custo Adicional de Balsa / Hidrovia (Tarifa PBT + Retenção HAZMAT)
+    const custoBalsaPorLitro = requerBalsa ? 0.35 : 0.00
 
-    let minBase = 1.00
-    let maxBase = 1.30
+    // 5. Total de Deduções Operacionais
+    const deducoesTotais = Math.max(0.40, custoFretePorLitro + custoDistanciaAdicional + custoBalsaPorLitro)
+    
+    // 6. Teto Sugerido e Limite Máximo Recomendado
+    const valorLiquidoMaximo = Math.max(0.70, precoBrutoRerrefino - deducoesTotais)
+    const valorLiquidoMinimo = Math.max(0.50, valorLiquidoMaximo * 0.75)
 
-    if (vol >= 2000) {
-      minBase = 1.60
-      maxBase = 2.00
-    } else if (vol >= 500) {
-      minBase = 1.25
-      maxBase = 1.60
-    }
-
-    const minAjustado = (minBase * multiplicadorZona).toFixed(2)
-    const maxAjustado = (maxBase * multiplicadorZona).toFixed(2)
+    let nomeZona = 'Rota Terrestre Regular'
+    if (uf === 'ES' && cidadesHub.includes(cid)) nomeZona = 'Hub Direto (Baixo Frete)'
+    else if (!['ES', 'MG', 'RJ'].includes(uf)) nomeZona = 'Longo Curso (Transbordo Interestadual)'
+    if (requerBalsa) nomeZona += ' + Travessia Balsa/Fluvial'
 
     return {
-      faixaTexto: `R$ ${minAjustado} a R$ ${maxAjustado} / L`,
+      precoBrutoRerrefino: precoBrutoRerrefino.toFixed(2),
+      custoFrete: (custoFretePorLitro + custoDistanciaAdicional).toFixed(2),
+      custoBalsa: custoBalsaPorLitro.toFixed(2),
+      deducoesTotais: deducoesTotais.toFixed(2),
+      tetoSugerido: valorLiquidoMaximo.toFixed(2),
+      faixaTexto: `R$ ${valorLiquidoMinimo.toFixed(2)} a R$ ${valorLiquidoMaximo.toFixed(2)} / L`,
       nomeZona
     }
   }
 
-  const benchmarkAtual = getBenchmarkLogistico(novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, novaColeta.requer_balsa)
+  const breakdownAtual = getCalculoLogisticoDetalhado(novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, novaColeta.requer_balsa)
   const cadeiaMtrAtual = getCadeiaMtrCompleta(novaColeta.estado, novaColeta.tem_transbordo, novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final)
 
-  // Consulta inteligente: CPF no Supabase vs CNPJ na Receita/Sintegra por UF + Validação de LO
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
@@ -247,7 +246,6 @@ export default function App() {
             ieEncontrada = ''
           }
 
-          // Simulação de Checagem no Banco de Licenciamento Ambiental (IEMA/CETESB/INEA)
           const licencaSimulada = `LO-${uf || 'AMB'} ${Math.floor(1000 + Math.random() * 9000)}/2026`
 
           setNovaColeta(prev => ({
@@ -276,6 +274,19 @@ export default function App() {
     if (!novaColeta.lo_valida) {
       alert("A Licença de Operação (LO) precisa estar válida no órgão ambiental para prosseguir.")
       return
+    }
+
+    // Trava de Segurança Comercial: alerta se o valor solicitado for muito superior ao teto calculado
+    if (!novaColeta.cotacao_aberta && novaColeta.valor_esperado) {
+      const valDigitado = parseFloat(novaColeta.valor_esperado)
+      const teto = parseFloat(breakdownAtual.tetoSugerido)
+
+      if (valDigitado > teto + 0.30) {
+        const aceita = window.confirm(
+          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L está acima da viabilidade logística estimada para a sua rota (máximo recomendado: R$ ${teto.toFixed(2)}/L).\n\nDevido aos custos de frete/balsa e testes de laboratório (BS&W), o pedido pode demorar mais para receber ofertas de coletores.\n\nDeseja confirmar assim mesmo?`
+        )
+        if (!aceita) return
+      }
     }
 
     setLoading(true)
@@ -315,7 +326,7 @@ export default function App() {
           lo_valida: true,
           volume_estimado: '', 
           valor_esperado: '', 
-          cotacao_aberta: false, 
+          cotacao_aberta: true, 
           requer_balsa: false,
           tem_transbordo: true,
           estado_base_transbordo: 'ES',
@@ -357,7 +368,6 @@ export default function App() {
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           
-          {/* Logo & Marca */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
             <div className="relative transform hover:scale-105 transition duration-300">
               <LubeLoopLogo className="w-11 h-11" glow={true} />
@@ -372,14 +382,13 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Compliance Hub
+                  Marketplace Transparente
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
             </div>
           </div>
 
-          {/* Navegação */}
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
             <button 
               onClick={() => setActiveTab('dashboard')}
@@ -407,7 +416,6 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Status da Conexão */}
           <div className="hidden lg:flex items-center gap-2 bg-slate-900/50 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
             <span className="text-slate-300">IEMA-ES / CETESB / FEAM / INEA: ON</span>
@@ -416,7 +424,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto relative z-10">
         
         {/* ABA: DASHBOARD */}
@@ -433,13 +440,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      ⚙️ Motor com Atualização Automática de Legislação Ambiental
+                      📊 Precificação Transparente com Composição de Frete
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Detecção dinâmica de sistemas estaduais (IEMA-ES, CETESB, INEA, FEAM) e SINIR Nacional, com validação de Licença de Operação e emissão de CDF.
+                      Cálculo de viabilidade comercial em tempo real com detalhamento visual de custos de frete rodoviário, balsa e análise de amostragem BS&W.
                     </p>
                   </div>
                 </div>
@@ -502,7 +509,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: CONFIGURAÇÃO DE MTRS ESTADUAIS (ATUALIZAÇÃO AUTOMÁTICA) */}
+        {/* ABA: CONFIGURAÇÃO DE MTRS ESTADUAIS */}
         {activeTab === 'config_mtr' && (
           <div className="max-w-4xl mx-auto space-y-6 animate-fadeIn">
             <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl">
@@ -546,7 +553,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO */}
+        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM CARD DE BREAKDOWN LOGÍSTICO */}
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto animate-fadeIn">
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
@@ -557,7 +564,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">Com validação de Licença de Operação (LO) e roteamento automático de MTR.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Cotação transparente com detalhamento da composição do frete e MTR.</p>
                   </div>
                 </div>
               </div>
@@ -618,7 +625,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* BLOCO COMPLIANCE AMBIENTAL: Licença de Operação (LO) */}
+                {/* Compliance Ambiental (Licença de Operação - LO) */}
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
                     <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -671,7 +678,27 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* BLOCO EXCLUSIVO: INTEGRAÇÃO MULTI-MTR (Cadeia de Custódia) */}
+                {/* Modal de Transporte & Balsas */}
+                <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">🚢</span>
+                    <div>
+                      <label htmlFor="checkBalsa" className="text-xs font-bold text-slate-200 cursor-pointer block">
+                        Acesso requer travessia por Balsa ou Transporte Fluvial?
+                      </label>
+                      <span className="text-[11px] text-slate-400">Ajusta o frete considerando tarifação de eixos/PBT e regulação HAZMAT na embarcação.</span>
+                    </div>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    id="checkBalsa"
+                    checked={novaColeta.requer_balsa}
+                    onChange={e => setNovaColeta({...novaColeta, requer_balsa: e.target.checked})}
+                    className="w-5 h-5 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer"
+                  />
+                </div>
+
+                {/* Roteamento MTR */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-cyan-500/30 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
                     <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -744,34 +771,14 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Modal de Transporte & Balsas */}
-                <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">🚢</span>
-                    <div>
-                      <label htmlFor="checkBalsa" className="text-xs font-bold text-slate-200 cursor-pointer block">
-                        Acesso requer travessia por Balsa ou Transporte Fluvial?
-                      </label>
-                      <span className="text-[11px] text-slate-400">Ajusta o frete considerando tarifação de eixos/PBT e regulação HAZMAT na embarcação.</span>
-                    </div>
-                  </div>
-                  <input 
-                    type="checkbox" 
-                    id="checkBalsa"
-                    checked={novaColeta.requer_balsa}
-                    onChange={e => setNovaColeta({...novaColeta, requer_balsa: e.target.checked})}
-                    className="w-5 h-5 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer"
-                  />
-                </div>
-
-                {/* Bloco de Volume e Precificação */}
+                {/* BLOCO DE VOLUME E ESCOLHA DE PROPOSTA */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                      <span>📍</span> Matriz Logística ({benchmarkAtual.nomeZona})
+                      <span>🛢️</span> Volume & Proposta Comercial
                     </span>
                     <span className="text-xs text-amber-300 font-mono font-bold">
-                      Sugestão: {benchmarkAtual.faixaTexto}
+                      Teto Recomendado: R$ {breakdownAtual.tetoSugerido} / L
                     </span>
                   </div>
 
@@ -797,7 +804,7 @@ export default function App() {
                         type="number" 
                         step="0.05"
                         disabled={novaColeta.cotacao_aberta}
-                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta selecionada" : "Ex: 1.30"}
+                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta ativada" : `Máx: ${breakdownAtual.tetoSugerido}`}
                         value={novaColeta.valor_esperado}
                         onChange={e => setNovaColeta({...novaColeta, valor_esperado: e.target.value})}
                         className={`w-full border rounded-xl px-4 py-3 text-sm font-mono font-bold transition focus:outline-none ${novaColeta.cotacao_aberta ? 'bg-slate-900/40 border-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-amber-400 focus:border-emerald-500'}`}
@@ -805,19 +812,79 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Checkbox Cotação Aberta */}
-                  <div className="flex items-center gap-3 pt-2">
+                  {/* Radio/Checkbox Cotação Aberta */}
+                  <div className="flex items-center gap-3 pt-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
                     <input 
                       type="checkbox" 
                       id="checkCotacao"
                       checked={novaColeta.cotacao_aberta}
                       onChange={e => setNovaColeta({...novaColeta, cotacao_aberta: e.target.checked, valor_esperado: e.target.checked ? '' : novaColeta.valor_esperado})}
-                      className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900"
+                      className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer"
                     />
-                    <label htmlFor="checkCotacao" className="text-xs text-slate-300 font-medium cursor-pointer">
-                      Aceitar a melhor oferta do coletor (<span className="text-emerald-400 font-bold">Cotação Aberta</span>)
+                    <label htmlFor="checkCotacao" className="text-xs text-slate-200 font-medium cursor-pointer">
+                      <strong>Cotação Aberta (Recomendado):</strong> Receber lances concorrenciais dos coletores credenciados para esta rota.
                     </label>
                   </div>
+                </div>
+
+                {/* CARD VISUAL DE BREAKDOWN LOGÍSTICO (COMPOSIÇÃO FINANCEIRA EXIBIDA AO GERADOR) */}
+                <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📊</span>
+                      <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                        Composição Transparente do Valor ({breakdownAtual.nomeZona})
+                      </h4>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">
+                      Faixa: {breakdownAtual.faixaTexto}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Entenda como os custos de frete rodoviário, paradas por volume e travessias impactam o valor final oferecido na ponta:
+                  </p>
+
+                  <div className="space-y-3 font-mono text-xs">
+                    
+                    {/* Linha 1: Preço Bruto Básico Rerrefino */}
+                    <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-300 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        Cotação de Referência do Rerrefino (Básico SN)
+                      </span>
+                      <span className="text-emerald-400 font-bold">+ R$ {breakdownAtual.precoBrutoRerrefino} / L</span>
+                    </div>
+
+                    {/* Linha 2: Custo de Coleta e Frete */}
+                    <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                        Frete Rodoviário & Operação de Coleta
+                      </span>
+                      <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoFrete} / L</span>
+                    </div>
+
+                    {/* Linha 3: Impacto Balsa (Se houver) */}
+                    {novaColeta.requer_balsa && (
+                      <div className="flex justify-between items-center bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/30">
+                        <span className="text-amber-300 flex items-center gap-2 font-bold">
+                          <span>🚢</span> Travessia Aquaviária / Tarifação Balsa HAZMAT
+                        </span>
+                        <span className="text-amber-300 font-bold">- R$ {breakdownAtual.custoBalsa} / L</span>
+                      </div>
+                    )}
+
+                    {/* Total Liquido Recomendado */}
+                    <div className="flex justify-between items-center bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/40 text-sm">
+                      <span className="text-white font-bold">Valor Líquido Recomendado ao Gerador</span>
+                      <span className="text-emerald-300 font-black text-base">R$ {breakdownAtual.tetoSugerido} / L</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-slate-500 italic border-t border-slate-800/80 pt-3 leading-normal">
+                    ⚠️ <strong>Observação:</strong> O pagamento final fica condicionado à amostragem de bancada (teor de água e impurezas BS&W) realizada na sucção do caminhão-tanque.
+                  </p>
                 </div>
 
                 <button 
@@ -825,14 +892,14 @@ export default function App() {
                   disabled={loading || buscandoDoc}
                   className="w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 font-black py-4 rounded-2xl transition-all shadow-xl shadow-emerald-500/20 transform hover:scale-[1.01] active:scale-[0.99] mt-6 flex items-center justify-center gap-2"
                 >
-                  {loading ? 'A registrar no Supabase...' : '✓ Confirmar e Emitir Cadeia Multi-MTR'}
+                  {loading ? 'A registrar no Supabase...' : '✓ Confirmar e Enviar para Cotação'}
                 </button>
               </form>
             </div>
           </div>
         )}
 
-        {/* ABA: TABELA DE COLETAS REGISTRADAS & EMISSÃO DE CDF */}
+        {/* ABA: TABELA DE COLETAS REGISTRADAS */}
         {activeTab === 'coletas' && (
           <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl animate-fadeIn">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800/80">
@@ -930,7 +997,7 @@ export default function App() {
 
       </main>
 
-      {/* MODAL IMPRESSÃO / VISUALIZAÇÃO DO CDF (CERTIFICADO DE DESTINAÇÃO FINAL) */}
+      {/* MODAL IMPRESSÃO DO CDF */}
       {modalCdf && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 md:p-8 space-y-6 shadow-2xl relative">
