@@ -16,7 +16,7 @@ export default function App() {
 
   const [novaColeta, setNovaColeta] = useState({
     gerador: '',
-    cnpj: '', // usado como campo único de CPF/CNPJ
+    cnpj: '',
     inscricao_estadual: '',
     volume_estimado: '',
     endereco: '',
@@ -392,24 +392,3 @@ export default function App() {
               <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-xl">
                 Nenhuma solicitação encontrada no Supabase. Crie a primeira na aba "Nova Solicitação".
               </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm text-slate-300">
-                  <thead className="bg-slate-950 text-xs text-slate-400 uppercase tracking-wider">
-                    <tr>
-                      <th className="p-3 rounded-l-lg">Gerador</th>
-                      <th className="p-3">Inscrição Estadual</th>
-                      <th className="p-3">Volume</th>
-                      <th className="p-3">Localização</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3 rounded-r-lg">MTR SINIR</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {coletas.map((item, idx) => (
-                      <tr key={item.id || idx} className="hover:bg-slate-800/50">
-                        <td className="p-3 font-semibold text-white">
-                          {item.gerador_nome || 'Gerador sem nome'}
-                          <span className="block text-xs font-normal text-slate-400">{item.cnpj}</span>
-                        </td>
-                        <td className="p-3 text-xs font-
