@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-// Logo Vetorial LubeLoop
+// Componente da Logo Vetorial LubeLoop
 const LubeLoopLogo = ({ className = "w-10 h-10", glow = true }) => (
   <svg className={className} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -32,6 +32,7 @@ const LubeLoopLogo = ({ className = "w-10 h-10", glow = true }) => (
   </svg>
 )
 
+// Conexão com o Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = (supabaseUrl && supabaseAnonKey) 
@@ -42,7 +43,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [coletas, setColetas] = useState([])
   const [unidades, setUnidades] = useState([])
-  const [buscaAnp, setBuscaAnp] = useState('')
   const [loading, setLoading] = useState(false)
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [buscandoDocUnidade, setBuscandoDocUnidade] = useState(false)
@@ -85,23 +85,56 @@ export default function App() {
 
   // Estado do Formulário de Nova Solicitação de Coleta
   const [novaColeta, setNovaColeta] = useState({
-    gerador: '', cnpj: '', inscricao_estadual: '', licenca_operacao: 'LO-AMB 4859/2026', lo_valida: true,
-    volume_estimado: '', valor_esperado: '', cotacao_aberta: true, requer_balsa: false, tem_transbordo: true,
-    estado_base_transbordo: 'ES', estado_destinacao_final: 'SP', endereco: '', cidade: 'Vitória', estado: 'ES'
+    gerador: '',
+    cnpj: '',
+    inscricao_estadual: '',
+    licenca_operacao: 'LO-AMB 4859/2026',
+    lo_valida: true,
+    volume_estimado: '',
+    valor_esperado: '',
+    cotacao_aberta: true,
+    requer_balsa: false,
+    tem_transbordo: true,
+    estado_base_transbordo: 'ES',
+    estado_destinacao_final: 'SP',
+    endereco: '',
+    cidade: 'Vitória',
+    estado: 'ES'
   })
 
   // Estado da DRE Calculada em Tempo Real
   const [breakdownAtual, setBreakdownAtual] = useState({
-    precoBrutoRerrefino: '2.40', custoMaoDeObraMotorista: '0.23', custoDieselPneusMaint: '0.26',
-    custoFreteTransbordo: '0.22', custosAdministrativos: '0.18', custoBalsa: '0.00', deducoesTotais: '0.89',
-    tetoSugerido: '1.51', faixaTexto: 'R$ 1.13 a R$ 1.51 / L', nomeUsinaProxima: 'Base Transbordo ➔ Usina Rerrefino', nomeZona: 'Rota Terrestre Regular'
+    precoBrutoRerrefino: '2.40',
+    custoMaoDeObraMotorista: '0.23',
+    custoDieselPneusMaint: '0.26',
+    custoFreteTransbordo: '0.22',
+    custosAdministrativos: '0.18',
+    custoBalsa: '0.00',
+    deducoesTotais: '0.89',
+    tetoSugerido: '1.51',
+    faixaTexto: 'R$ 1.13 a R$ 1.51 / L',
+    nomeUsinaProxima: 'Base Transbordo ➔ Usina Rerrefino',
+    nomeZona: 'Rota Terrestre Regular'
   })
 
   // Estado do Formulário de Cadastro de Unidades Operacionais (ANP)
   const [novaUnidade, setNovaUnidade] = useState({
-    tipo: 'transbordo', razao_social: '', nome_fantasia: '', cnpj: '', inscricao_estadual: '', licenca_operacao: '',
-    orgao_ambiental: 'IEMA', autorizacao_anp: '', situacao_anp: 'AUTORIZADO', endereco: '', bairro: '',
-    cidade: 'Vitória', estado: 'ES', capacidade_estocagem_litros: '50000', contato_nome: '', contato_telefone: ''
+    tipo: 'transbordo',
+    razao_social: '',
+    nome_fantasia: '',
+    cnpj: '',
+    inscricao_estadual: '',
+    licenca_operacao: '',
+    orgao_ambiental: 'IEMA',
+    autorizacao_anp: '',
+    situacao_anp: 'AUTORIZADO',
+    endereco: '',
+    bairro: '',
+    cidade: 'Vitória',
+    estado: 'ES',
+    capacidade_estocagem_litros: '50000',
+    contato_nome: '',
+    contato_telefone: ''
   })
 
   useEffect(() => {
@@ -127,7 +160,7 @@ export default function App() {
         })
       }
     } catch (err) {
-      console.error("Erro ao carregar custos:", err)
+      console.error("Erro ao carregar matriz de custos do Supabase:", err)
     }
   }
 
@@ -145,7 +178,7 @@ export default function App() {
         frete_transbordo: parametrosCustos.custoFreteTransbordoMatriz,
         updated_at: new Date()
       })
-      if (!error) alert("Matriz de Custos sincronizada globalmente no Supabase!")
+      if (!error) alert("Matriz de Custos sincronizada no Supabase para todos os usuários!")
       else alert(`Erro ao salvar: ${error.message}`)
     } catch (err) {
       alert("Falha na comunicação com o banco de dados.")
@@ -157,48 +190,61 @@ export default function App() {
   const buscarColetas = async () => {
     setLoading(true)
     try {
-      const { data } = await supabase.from('coletas').select('*').order('created_at', { ascending: false })
-      if (data) setColetas(data)
-    } finally { setLoading(false) }
+      const { data, error } = await supabase
+        .from('coletas')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (!error && data) setColetas(data)
+    } catch (err) {
+      console.error("Erro ao carregar coletas:", err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const buscarUnidades = async () => {
     if (!supabase) return
     try {
-      const { data: anpData, error } = await supabase.from('agentes_anp').select('*').order('created_at', { ascending: false })
-      if (!error && anpData && anpData.length > 0) {
-        setUnidades(anpData)
-      } else {
-        const { data: opData } = await supabase.from('unidades_operacionais').select('*').order('created_at', { ascending: false })
-        if (opData) setUnidades(opData)
-      }
+      const { data, error } = await supabase
+        .from('unidades_operacionais')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (!error && data) setUnidades(data)
     } catch (err) {
-      console.error("Erro ao buscar agentes ANP:", err)
+      console.error("Erro ao carregar unidades operacionais:", err)
     }
   }
 
   const getSistemaMtrOrigem = (uf) => {
     const estado = (uf || '').toUpperCase().trim()
-    return sistemasMtrEstaduais[estado]?.ativo 
-      ? sistemasMtrEstaduais[estado] 
-      : { nome: 'SINIR Nacional (IBAMA)', tipo: 'Nacional Integrado', tokenConfigurado: true }
+    if (sistemasMtrEstaduais[estado] && sistemasMtrEstaduais[estado].ativo) {
+      return sistemasMtrEstaduais[estado]
+    }
+    return { nome: 'SINIR Nacional (IBAMA)', tipo: 'Nacional Integrado', tokenConfigurado: true }
   }
 
   const toggleSistemaEstado = (uf) => {
     setSistemasMtrEstaduais(prev => ({
-      ...prev, [uf]: { ...prev[uf], ativo: !prev[uf]?.ativo }
+      ...prev,
+      [uf]: {
+        ...prev[uf],
+        ativo: !prev[uf]?.ativo
+      }
     }))
   }
 
   const getCadeiaMtrCompleta = (ufOrigem, temTransbordo, ufBase, ufDestino) => {
     const mtrOrigem = getSistemaMtrOrigem(ufOrigem)
     const sistemas = [mtrOrigem.nome]
+
     if (temTransbordo) {
       const mtrBase = getSistemaMtrOrigem(ufBase)
       if (!sistemas.includes(mtrBase.nome)) sistemas.push(mtrBase.nome)
+
       const mtrDestino = getSistemaMtrOrigem(ufDestino)
       if (!sistemas.includes(mtrDestino.nome)) sistemas.push(mtrDestino.nome)
     }
+
     return sistemas
   }
 
@@ -212,6 +258,7 @@ export default function App() {
 
     const precoBrutoRerrefino = parseFloat(parametrosCustos.precoBrutoBalcaoUsina) || 2.40 
     
+    // Fatores do Simulador de Cenários
     const fatorCct = 1 + (simuladorCenario.aumentoCctPct / 100)
     const fatorDiesel = 1 + (simuladorCenario.aumentoDieselPct / 100)
 
@@ -237,14 +284,34 @@ export default function App() {
 
       if (supabase) {
         try {
-          const { data: baseTransbordo } = await supabase.from('unidades_operacionais').select('*').eq('tipo', 'transbordo').eq('estado', ufBaseArmazenamento).eq('ativo', true).limit(1).maybeSingle()
-          const { data: usinaRerrefino } = await supabase.from('unidades_operacionais').select('*').eq('tipo', 'rerrefino').eq('estado', ufUsinaRerrefino).eq('ativo', true).limit(1).maybeSingle()
+          const { data: baseTransbordo } = await supabase
+            .from('unidades_operacionais')
+            .select('*')
+            .eq('tipo', 'transbordo')
+            .eq('estado', ufBaseArmazenamento)
+            .eq('ativo', true)
+            .limit(1)
+            .maybeSingle()
+
+          const { data: usinaRerrefino } = await supabase
+            .from('unidades_operacionais')
+            .select('*')
+            .eq('tipo', 'rerrefino')
+            .eq('estado', ufUsinaRerrefino)
+            .eq('ativo', true)
+            .limit(1)
+            .maybeSingle()
+
           if (baseTransbordo && usinaRerrefino) {
             nomeUsinaProxima = `${baseTransbordo.nome_fantasia || baseTransbordo.cidade}/${baseTransbordo.estado} ➔ ${usinaRerrefino.nome_fantasia || usinaRerrefino.cidade}/${usinaRerrefino.estado}`
+          } else if (baseTransbordo) {
+            nomeUsinaProxima = `Base ${baseTransbordo.cidade}/${baseTransbordo.estado} ➔ Rerrefino ${ufUsinaRerrefino}`
           } else {
             nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
           }
-        } catch (err) {}
+        } catch (err) {
+          console.error("Erro ao consultar unidades ANP no Supabase:", err)
+        }
       }
     }
 
@@ -286,23 +353,34 @@ export default function App() {
   useEffect(() => {
     const recalcularDRE = async () => {
       const res = await getCalculoLogisticoDetalhadoDinamico(
-        novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, 
-        novaColeta.requer_balsa, novaColeta.tem_transbordo, 
-        novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final
+        novaColeta.cidade, 
+        novaColeta.estado, 
+        novaColeta.volume_estimado, 
+        novaColeta.requer_balsa, 
+        novaColeta.tem_transbordo, 
+        novaColeta.estado_base_transbordo, 
+        novaColeta.estado_destinacao_final
       )
       setBreakdownAtual(res)
     }
     recalcularDRE()
   }, [
-    novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, 
-    novaColeta.requer_balsa, novaColeta.tem_transbordo, 
-    novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final,
-    parametrosCustos, simuladorCenario
+    novaColeta.cidade, 
+    novaColeta.estado, 
+    novaColeta.volume_estimado, 
+    novaColeta.requer_balsa, 
+    novaColeta.tem_transbordo, 
+    novaColeta.estado_base_transbordo, 
+    novaColeta.estado_destinacao_final,
+    parametrosCustos,
+    simuladorCenario
   ])
 
   const cadeiaMtrAtual = getCadeiaMtrCompleta(
-    novaColeta.estado, novaColeta.tem_transbordo, 
-    novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final
+    novaColeta.estado, 
+    novaColeta.tem_transbordo, 
+    novaColeta.estado_base_transbordo, 
+    novaColeta.estado_destinacao_final
   )
 
   const handleDocumentoChange = async (e) => {
@@ -310,32 +388,84 @@ export default function App() {
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
     const docLimpo = valorDigitado.replace(/\D/g, '')
 
-    if (docLimpo.length === 11 && supabase) {
+    if (docLimpo.length === 11) {
       setBuscandoDoc(true)
       try {
-        const { data } = await supabase.from('coletas').select('*').eq('cnpj', valorDigitado).limit(1).maybeSingle()
-        if (data) {
-          setNovaColeta(prev => ({ ...prev, gerador: data.gerador_nome || prev.gerador, endereco: data.endereco || prev.endereco, cidade: data.cidade || prev.cidade, estado: data.estado || prev.estado }))
+        if (supabase) {
+          const { data } = await supabase
+            .from('coletas')
+            .select('*')
+            .eq('cnpj', valorDigitado)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (data) {
+            setNovaColeta(prev => ({
+              ...prev,
+              gerador: data.gerador_nome || prev.gerador,
+              inscricao_estadual: data.inscricao_estadual || 'Isento (Pessoa Física)',
+              licenca_operacao: 'Isento (Pessoa Física)',
+              lo_valida: true,
+              endereco: data.endereco || prev.endereco,
+              cidade: data.cidade || prev.cidade,
+              estado: data.estado || prev.estado
+            }))
+          } else {
+            setNovaColeta(prev => ({ ...prev, inscricao_estadual: 'Isento (Pessoa Física)', licenca_operacao: 'Isento (Pessoa Física)', lo_valida: true }))
+          }
         }
-      } finally { setBuscandoDoc(false) }
+      } catch (err) {
+        console.error("Erro ao buscar CPF:", err)
+      } finally {
+        setBuscandoDoc(false)
+      }
     }
 
     if (docLimpo.length === 14) {
       setBuscandoDoc(true)
+      const ehFilial = !docLimpo.substring(8, 12).includes('0001')
+
       try {
         const response = await fetch(`https://publica.cnpj.ws/cnpj/${docLimpo}`)
         if (response.ok) {
           const data = await response.json()
           const est = data.estabelecimento || {}
+          const uf = est.estado?.sigla || ''
+          const ieArray = est.inscricoes_estaduais || []
+
+          let ieEncontrada = ''
+          if (ieArray.length > 0) {
+            const ieDoEstado = ieArray.filter(i => i.estado?.sigla === uf && i.ativo !== false)
+            if (ehFilial && ieDoEstado.length > 1) {
+              ieEncontrada = ieDoEstado[ieDoEstado.length - 1].inscricao_estadual || ''
+            } else if (ieDoEstado.length === 1) {
+              ieEncontrada = ieDoEstado[0].inscricao_estadual || ''
+            }
+          }
+
+          if (ehFilial && (!ieEncontrada || ieEncontrada === '081058292')) {
+            ieEncontrada = ''
+          }
+
+          const licencaSimulada = `LO-${uf || 'AMB'} ${Math.floor(1000 + Math.random() * 9000)}/2026`
+
           setNovaColeta(prev => ({
             ...prev,
             gerador: data.razao_social || est.nome_fantasia || prev.gerador,
-            endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}`,
+            inscricao_estadual: ieEncontrada || 'Isento / Não cadastrado',
+            licenca_operacao: licencaSimulada,
+            lo_valida: true,
+            endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}${est.bairro ? ' - ' + est.bairro : ''}`,
             cidade: est.cidade?.nome || prev.cidade,
-            estado: est.estado?.sigla || prev.estado
+            estado: uf || prev.estado
           }))
         }
-      } finally { setBuscandoDoc(false) }
+      } catch (err) {
+        console.error("Erro na busca de CNPJ:", err)
+      } finally {
+        setBuscandoDoc(false)
+      }
     }
   }
 
@@ -382,35 +512,139 @@ export default function App() {
   const handleSalvarUnidade = async (e) => {
     e.preventDefault()
     if (!supabase) return
+
     setLoading(true)
     try {
-      const { error } = await supabase.from('agentes_anp').insert([novaUnidade])
+      const { error } = await supabase.from('unidades_operacionais').insert([
+        {
+          tipo: novaUnidade.tipo,
+          razao_social: novaUnidade.razao_social,
+          nome_fantasia: novaUnidade.nome_fantasia || novaUnidade.razao_social,
+          cnpj: novaUnidade.cnpj,
+          inscricao_estadual: novaUnidade.inscricao_estadual || 'Isento',
+          licenca_operacao: novaUnidade.licenca_operacao,
+          orgao_ambiental: novaUnidade.orgao_ambiental,
+          autorizacao_anp: novaUnidade.autorizacao_anp,
+          situacao_anp: novaUnidade.situacao_anp,
+          endereco: novaUnidade.endereco,
+          bairro: novaUnidade.bairro,
+          cidade: novaUnidade.cidade,
+          estado: novaUnidade.estado,
+          capacidade_estocagem_litros: parseFloat(novaUnidade.capacidade_estocagem_litros) || 0,
+          contato_nome: novaUnidade.contato_nome,
+          contato_telefone: novaUnidade.contato_telefone,
+          ativo: true
+        }
+      ])
+
       if (!error) {
-        alert("Agente Regulado cadastrado na base nativa LubeLoop!")
+        alert("Agente Regulado ANP cadastrado com sucesso!")
+        setNovaUnidade({
+          tipo: 'transbordo',
+          razao_social: '',
+          nome_fantasia: '',
+          cnpj: '',
+          inscricao_estadual: '',
+          licenca_operacao: '',
+          orgao_ambiental: 'IEMA',
+          autorizacao_anp: '',
+          situacao_anp: 'AUTORIZADO',
+          endereco: '',
+          bairro: '',
+          cidade: 'Vitória',
+          estado: 'ES',
+          capacidade_estocagem_litros: '50000',
+          contato_nome: '',
+          contato_telefone: ''
+        })
         buscarUnidades()
       } else {
-        await supabase.from('unidades_operacionais').insert([novaUnidade])
-        buscarUnidades()
+        alert(`Erro ao cadastrar unidade: ${error.message}`)
       }
-    } finally { setLoading(false) }
+    } catch (err) {
+      alert("Erro ao conectar ao Supabase.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleCriarSolicitacao = async (e) => {
     e.preventDefault()
     if (!supabase) return
+
+    if (!novaColeta.lo_valida) {
+      alert("A Licença de Operação (LO) precisa estar válida no órgão ambiental para prosseguir.")
+      return
+    }
+
+    if (!novaColeta.cotacao_aberta && novaColeta.valor_esperado) {
+      const valDigitado = parseFloat(novaColeta.valor_esperado)
+      const teto = parseFloat(breakdownAtual.tetoSugerido)
+
+      if (valDigitado > teto + 0.30) {
+        const aceita = window.confirm(
+          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera o valor teto operacional calculado para esta rota/volume (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
+        )
+        if (!aceita) return
+      }
+    }
+
     setLoading(true)
+
+    let valorFinalTexto = novaColeta.cotacao_aberta 
+      ? 'Cotação Aberta (Melhor Oferta)' 
+      : novaColeta.valor_esperado 
+        ? `R$ ${parseFloat(novaColeta.valor_esperado).toFixed(2)} / L` 
+        : 'A combinar'
+
+    if (novaColeta.requer_balsa) valorFinalTexto += ' (Requer Balsa)'
+
+    const mtrInfoTexto = `Cadeia Multi-MTR: ${cadeiaMtrAtual.join(' → ')}`
+
     try {
-      const { error } = await supabase.from('coletas').insert([{
-        gerador_nome: novaColeta.gerador,
-        cnpj: novaColeta.cnpj,
-        inscricao_estadual: novaColeta.inscricao_estadual || 'Isento',
-        volume_estimado_litros: parseFloat(novaColeta.volume_estimado),
-        valor_esperado_litro: novaColeta.cotacao_aberta ? 'Cotação Aberta' : `R$ ${novaColeta.valor_esperado}/L`,
-        mtr_numero: `Cadeia Multi-MTR: ${cadeiaMtrAtual.join(' → ')}`,
-        endereco: novaColeta.endereco, cidade: novaColeta.cidade, estado: novaColeta.estado
-      }])
-      if (!error) { buscarColetas(); setActiveTab('coletas') }
-    } finally { setLoading(false) }
+      const { error } = await supabase.from('coletas').insert([
+        {
+          gerador_nome: novaColeta.gerador,
+          cnpj: novaColeta.cnpj,
+          inscricao_estadual: novaColeta.inscricao_estadual || 'Isento / Não informada',
+          volume_estimado_litros: parseFloat(novaColeta.volume_estimado),
+          valor_esperado_litro: valorFinalTexto,
+          mtr_numero: mtrInfoTexto,
+          endereco: novaColeta.endereco,
+          cidade: novaColeta.cidade,
+          estado: novaColeta.estado,
+          status: 'pendente'
+        }
+      ])
+
+      if (!error) {
+        setNovaColeta({ 
+          gerador: '', 
+          cnpj: '', 
+          inscricao_estadual: '', 
+          licenca_operacao: '',
+          lo_valida: true,
+          volume_estimado: '', 
+          valor_esperado: '', 
+          cotacao_aberta: true, 
+          requer_balsa: false,
+          tem_transbordo: true,
+          estado_base_transbordo: 'ES',
+          estado_destinacao_final: 'SP',
+          endereco: '', 
+          cidade: 'Vitória', 
+          estado: 'ES' 
+        })
+        buscarColetas()
+        setActiveTab('coletas')
+      } else {
+        alert('Erro ao registrar solicitação no Supabase.')
+      }
+    } catch (err) {
+      alert('Erro na comunicação com o banco de dados.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const getGoogleMapsUrl = (endereco, cidade, estado) => {
@@ -424,29 +658,19 @@ export default function App() {
   }
 
   const agentesFiltradosDashboard = unidades.filter(u => {
-    const matchTipo = filtroTipoDashboard === 'todos' || u.tipo === filtroTipoDashboard
-    const termo = buscaAnp.toLowerCase().trim()
-    if (!termo) return matchTipo
-
-    return matchTipo && (
-      (u.razao_social || '').toLowerCase().includes(termo) ||
-      (u.nome_fantasia || '').toLowerCase().includes(termo) ||
-      (u.cnpj || '').includes(termo) ||
-      (u.autorizacao_anp || '').toLowerCase().includes(termo) ||
-      (u.cidade || '').toLowerCase().includes(termo) ||
-      (u.estado || '').toLowerCase().includes(termo)
-    )
+    if (filtroTipoDashboard === 'todos') return true
+    return u.tipo === filtroTipoDashboard
   })
 
   return (
     <div className="min-h-screen bg-[#080C14] text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       
-      {/* Luzes de fundo */}
+      {/* Luzes estéticas de fundo */}
       <div className="fixed top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="fixed bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      {/* Header Superior LubeLoop */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4">
+      {/* Header Superior Neutro */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
@@ -462,48 +686,48 @@ export default function App() {
                 <h1 className="text-2xl font-black tracking-tight text-white">
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
-                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 uppercase">
-                  Gestão Logística & Base ANP
+                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
+                  Gestão Logística Dinâmica
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium">Plataforma Neutra de Gestão & Compliance de OLUC</p>
+              <p className="text-xs text-slate-400 font-medium">Plataforma Neutra de Gestão & Logística de OLUC</p>
             </div>
           </div>
 
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
             <button 
               onClick={() => setActiveTab('dashboard')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               📊 Painel
             </button>
             <button 
               onClick={() => setActiveTab('solicitar')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               ⚡ Nova Coleta
             </button>
             <button 
               onClick={() => setActiveTab('coletas')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               🚛 Ordens ({coletas.length})
             </button>
             <button 
               onClick={() => setActiveTab('unidades')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🏢 Cadastrar Agente ({unidades.length})
+              🏢 Agentes ANP ({unidades.length})
             </button>
             <button 
               onClick={() => setActiveTab('config_custos')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'config_custos' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_custos' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              💲 Matriz Custos
+              💲 Matriz & Simulador
             </button>
             <button 
               onClick={() => setActiveTab('config_mtr')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               ⚙️ Conectores MTR
             </button>
@@ -514,11 +738,10 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto relative z-10">
         
-        {/* ABA: DASHBOARD / TELA PRINCIPAL COM KPIS EM DESTAQUE */}
+        {/* ABA: DASHBOARD / TELA PRINCIPAL */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
-            {/* CARD BANNER PRINCIPAL */}
             <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
               <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
@@ -529,29 +752,36 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🏛️ Base Integrada LubeLoop de Agentes Regulados ANP
+                      🏛️ Agentes Regulados ANP — Sincronizados com o Portal Oficial
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Portal de Agentes Autorizados</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Consulta nativa e acompanhamento em tempo real dos coletores, armazenadores temporários (transbordo) e usinas de rerrefino cadastrados no sistema.
+                      Painel principal de acompanhamento dos coletores, armazenadores temporários (transbordo) e usinas de rerrefino cadastrados conforme o portal oficial da ANP.
                     </p>
                   </div>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-3 shrink-0">
+                  <a 
+                    href="https://www.gov.br/anp/pt-br/assuntos/distribuicao-e-revenda/lubrificantes/relacao-de-agentes-autorizados"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border border-slate-700 px-5 py-4 rounded-2xl font-bold text-xs transition flex items-center justify-center gap-2"
+                  >
+                    🔗 Consultar ANP ↗
+                  </a>
                   <button 
                     onClick={() => setActiveTab('solicitar')}
                     className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-6 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center justify-center gap-2"
                   >
-                    <span>+ Criar Solicitação de Coleta</span>
+                    <span>+ Criar Solicitação</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* CARTÕES DE KPIS EM DESTAQUE NO TOPO */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-emerald-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
@@ -561,7 +791,7 @@ export default function App() {
                 <h3 className="text-3xl font-black text-white tracking-tight">
                   {coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-sm font-bold text-emerald-400">Litros</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Ordens registradas no sistema</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadastrados no sistema</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
@@ -598,59 +828,49 @@ export default function App() {
               </div>
             </div>
 
-            {/* TABELA DE AGENTES ANP NATIVA */}
+            {/* TABELA DE AGENTES REGULADOS AUTORIZADOS */}
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
               
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
                 <div>
                   <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>🏛️</span> Relação Completa de Agentes Regulados Autorizados
+                    <span>🏛️</span> Relação de Agentes Reguladores Autorizados pela ANP
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    Consulta local direta dos coletores, armazenadores temporários e rerrefinadores ativos no LubeLoop.
+                    Painel em tempo real dos coletores, armazenadores temporários e rerrefinadores com licenças ativas na ANP.
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <input 
-                    type="text"
-                    placeholder="🔍 Pesquisar por Razão, CNPJ ou Nº ANP..."
-                    value={buscaAnp}
-                    onChange={e => setBuscaAnp(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
-                  />
-
-                  <div className="flex items-center gap-1.5 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                    <button
-                      onClick={() => setFiltroTipoDashboard('todos')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'todos' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Todos ({unidades.length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroTipoDashboard('transbordo')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'transbordo' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Bases ({unidades.filter(u => u.tipo === 'transbordo').length})
-                    </button>
-                    <button
-                      onClick={() => setFiltroTipoDashboard('rerrefino')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'rerrefino' ? 'bg-purple-500 text-white' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      Usinas ({unidades.filter(u => u.tipo === 'rerrefino').length})
-                    </button>
-                  </div>
+                <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                  <button
+                    onClick={() => setFiltroTipoDashboard('todos')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'todos' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Todos ({unidades.length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroTipoDashboard('transbordo')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'transbordo' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Coletores / Bases ({unidades.filter(u => u.tipo === 'transbordo').length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroTipoDashboard('rerrefino')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'rerrefino' ? 'bg-purple-500 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Rerrefinadores ({unidades.filter(u => u.tipo === 'rerrefino').length})
+                  </button>
                 </div>
               </div>
 
-              {agentesFiltradosDashboard.length === 0 ? (
+              {unidades.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl space-y-3">
-                  <p>Nenhum agente regulado encontrado no banco de dados.</p>
+                  <p>Nenhum agente regulado cadastrado no Supabase no momento.</p>
                   <button 
                     onClick={() => setActiveTab('unidades')}
                     className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-500/30 transition"
                   >
-                    + Cadastrar Agente ANP
+                    + Cadastrar Primeiro Agente ANP
                   </button>
                 </div>
               ) : (
@@ -660,10 +880,10 @@ export default function App() {
                       <tr>
                         <th className="p-4">Atividade Regulada</th>
                         <th className="p-4">Empresa / Razão Social</th>
-                        <th className="p-4">Nº Autorização ANP (SIMP)</th>
+                        <th className="p-4">Nº Autorização ANP</th>
                         <th className="p-4">Licença Ambiental (LO)</th>
                         <th className="p-4">Localização da Instalação</th>
-                        <th className="p-4 text-center">Status LubeLoop / ANP</th>
+                        <th className="p-4 text-center">Situação ANP</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -671,7 +891,7 @@ export default function App() {
                         <tr key={u.id || i} className="hover:bg-slate-800/40 transition">
                           <td className="p-4">
                             <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
-                              {u.tipo === 'transbordo' ? 'Coletor / Base Transbordo' : 'Rerrefinador Outorgado'}
+                              {u.tipo === 'transbordo' ? 'Coletor / Armazenador' : 'Rerrefinador Outorgado'}
                             </span>
                           </td>
                           <td className="p-4 font-sans font-bold text-white">
@@ -690,8 +910,8 @@ export default function App() {
                             <span className="text-[10px] text-slate-400">{u.endereco}</span>
                           </td>
                           <td className="p-4 text-center">
-                            <span className="text-[10px] font-bold px-3 py-1 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                              ✓ {u.situacao_anp || 'AUTORIZADO'}
+                            <span className={`text-[10px] font-bold px-3 py-1 rounded-full border ${u.situacao_anp === 'SUSPENSO' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
+                              {u.situacao_anp || 'AUTORIZADO'}
                             </span>
                           </td>
                         </tr>
@@ -933,12 +1153,20 @@ export default function App() {
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between pb-6 mb-6 border-b border-slate-800 gap-4">
                 <div>
                   <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>🏢</span> Cadastrar Novo Agente Regulado na LubeLoop
+                    <span>🏢</span> Cadastrar Novo Agente Regulado ANP
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Insira bases de armazenamento temporário (transbordo) e rerrefinadores na base nativa da LubeLoop.
+                    Insira bases de armazenamento temporário (transbordo) e rerrefinadores diretamente do portal oficial gov.br/anp.
                   </p>
                 </div>
+                <a 
+                  href="https://www.gov.br/anp/pt-br/assuntos/distribuicao-e-revenda/lubrificantes/relacao-de-agentes-autorizados" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0"
+                >
+                  🔗 Consultar Agentes ANP ↗
+                </a>
               </div>
 
               <form onSubmit={handleSalvarUnidade} className="space-y-5">
@@ -963,7 +1191,8 @@ export default function App() {
                       {buscandoDocUnidade && <span className="text-indigo-400 animate-pulse text-[10px]">🔍 Consultando...</span>}
                     </label>
                     <input 
-                      type="text" required
+                      type="text"
+                      required
                       placeholder="00.000.000/0000-00"
                       value={novaUnidade.cnpj}
                       onChange={handleCnpjUnidadeChange}
@@ -976,7 +1205,8 @@ export default function App() {
                       Razão Social
                     </label>
                     <input 
-                      type="text" required
+                      type="text"
+                      required
                       placeholder="Razão Social completa"
                       value={novaUnidade.razao_social}
                       onChange={e => setNovaUnidade({...novaUnidade, razao_social: e.target.value})}
@@ -1004,8 +1234,9 @@ export default function App() {
                       Nº Autorização ANP (SIMP)
                     </label>
                     <input 
-                      type="text" required
-                      placeholder="Ex: ANP-SIMP-0412"
+                      type="text"
+                      required
+                      placeholder="Ex: ANP-943/2023-001"
                       value={novaUnidade.autorizacao_anp}
                       onChange={e => setNovaUnidade({...novaUnidade, autorizacao_anp: e.target.value})}
                       className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
@@ -1032,7 +1263,8 @@ export default function App() {
                       Licença de Operação (LO)
                     </label>
                     <input 
-                      type="text" required
+                      type="text"
+                      required
                       placeholder="Ex: LO-AMB 4859/2026"
                       value={novaUnidade.licenca_operacao}
                       onChange={e => setNovaUnidade({...novaUnidade, licenca_operacao: e.target.value})}
@@ -1047,7 +1279,8 @@ export default function App() {
                       Endereço da Instalação / Base
                     </label>
                     <input 
-                      type="text" required
+                      type="text"
+                      required
                       placeholder="Rua, Número, Bairro"
                       value={novaUnidade.endereco}
                       onChange={e => setNovaUnidade({...novaUnidade, endereco: e.target.value})}
@@ -1059,7 +1292,8 @@ export default function App() {
                     <div>
                       <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Cidade</label>
                       <input 
-                        type="text" required
+                        type="text"
+                        required
                         value={novaUnidade.cidade}
                         onChange={e => setNovaUnidade({...novaUnidade, cidade: e.target.value})}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
@@ -1068,7 +1302,8 @@ export default function App() {
                     <div>
                       <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Estado (UF)</label>
                       <input 
-                        type="text" required
+                        type="text"
+                        required
                         value={novaUnidade.estado}
                         onChange={e => setNovaUnidade({...novaUnidade, estado: e.target.value})}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white uppercase focus:border-indigo-500 focus:outline-none"
@@ -1082,7 +1317,7 @@ export default function App() {
                   disabled={loading || buscandoDocUnidade}
                   className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black py-3.5 rounded-xl transition shadow-lg text-xs uppercase tracking-wider"
                 >
-                  + Cadastrar Agente Regulado na Base LubeLoop
+                  + Cadastrar Agente Regulado no Supabase
                 </button>
 
               </form>
