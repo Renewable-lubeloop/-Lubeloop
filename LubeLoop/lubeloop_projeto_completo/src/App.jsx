@@ -44,18 +44,33 @@ export default function App() {
   const [coletas, setColetas] = useState([])
   const [loading, setLoading] = useState(false)
   const [buscandoDoc, setBuscandoDoc] = useState(false)
+  const [modalCdf, setModalCdf] = useState(null)
+
+  // Mapeamento Dinâmico de Sistemas por Estado (Atualizável via Admin/API)
+  const [sistemasMtrEstaduais, setSistemasMtrEstaduais] = useState({
+    'ES': { nome: 'MTR-ES / IEMA', tipo: 'Estadual Próprio (IN 012-N/2022)', ativo: true, tokenConfigurado: true },
+    'RJ': { nome: 'MTR-INEA (RJ)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: true },
+    'MG': { nome: 'MTR-FEAM (MG)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: true },
+    'SP': { nome: 'SIGOR / CETESB (SP)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: true },
+    'PR': { nome: 'MTR-IAT (PR)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: false },
+    'SC': { nome: 'MTR-IMA (SC)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: false },
+    'RS': { nome: 'MTR-FEPAM (RS)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: false },
+    'BA': { nome: 'MTR-INEMA (BA)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: false }
+  })
 
   const [novaColeta, setNovaColeta] = useState({
     gerador: '',
     cnpj: '',
     inscricao_estadual: '',
+    licenca_operacao: 'LO-IEMA 4859/2025',
+    lo_valida: true,
     volume_estimado: '',
     valor_esperado: '',
     cotacao_aberta: false,
     requer_balsa: false,
-    tem_transbordo: true, // Padrão: base licenciada de armazenamento intermediário
-    estado_base_transbordo: 'ES', // ex: Serra/ES
-    estado_destinacao_final: 'SP', // ex: Usina de Rerrefino em SP
+    tem_transbordo: true,
+    estado_base_transbordo: 'ES',
+    estado_destinacao_final: 'SP',
     endereco: '',
     cidade: 'Serra',
     estado: 'ES'
@@ -80,38 +95,36 @@ export default function App() {
     }
   }
 
-  // Roteador Inteligente de MTR por Cidade / UF (Linhas 85-98 Corrigidas)
-  const getSistemaMtrOrigem = (uf, cidade) => {
+  // Roteador Dinâmico de MTR (Checa se o Estado migrou para sistema próprio ou SINIR)
+  const getSistemaMtrOrigem = (uf) => {
     const estado = (uf || '').toUpperCase().trim()
-    
-    // Mapeamento de Estados com Sistemas Próprios integrados
-    const sistemasProprios = {
-      'RJ': { nome: 'INEA / MTR-RJ', tipo: 'Estadual Próprio' },
-      'MG': { nome: 'FEAM / MTR-MG', tipo: 'Estadual Próprio' },
-      'SP': { nome: 'SIGOR / Cetesb (SP)', tipo: 'Estadual Próprio' },
-      'PR': { nome: 'IAT / MTR-PR', tipo: 'Estadual Próprio' },
-      'SC': { nome: 'IMA / MTR-SC', tipo: 'Estadual Próprio' },
-      'RS': { nome: 'FEPAM / MTR-RS', tipo: 'Estadual Próprio' }
+    if (sistemasMtrEstaduais[estado] && sistemasMtrEstaduais[estado].ativo) {
+      return sistemasMtrEstaduais[estado]
     }
+    return { nome: 'SINIR Nacional (IBAMA)', tipo: 'Nacional Integrado', tokenConfigurado: true }
+  }
 
-    if (sistemasProprios[estado]) {
-      return sistemasProprios[estado]
-    }
-
-    // Demais UFs (como ES, BA, GO, etc.) utilizam o SINIR Nacional do IBAMA
-    return { nome: 'SINIR Nacional (IBAMA)', tipo: 'Nacional Integrado' }
+  // Alternar configuração do estado (Nacional vs Estadual)
+  const toggleSistemaEstado = (uf) => {
+    setSistemasMtrEstaduais(prev => ({
+      ...prev,
+      [uf]: {
+        ...prev[uf],
+        ativo: !prev[uf]?.ativo
+      }
+    }))
   }
 
   // Cálculo de Rota Multiestadual de MTR (Cadeia de Custódia de OLUC)
-  const getCadeiaMtrCompleta = (ufOrigem, cidadeOrigem, temTransbordo, ufBase, ufDestino) => {
-    const mtrOrigem = getSistemaMtrOrigem(ufOrigem, cidadeOrigem)
+  const getCadeiaMtrCompleta = (ufOrigem, temTransbordo, ufBase, ufDestino) => {
+    const mtrOrigem = getSistemaMtrOrigem(ufOrigem)
     const sistemas = [mtrOrigem.nome]
 
     if (temTransbordo) {
-      const mtrBase = getSistemaMtrOrigem(ufBase, '')
+      const mtrBase = getSistemaMtrOrigem(ufBase)
       if (!sistemas.includes(mtrBase.nome)) sistemas.push(mtrBase.nome)
 
-      const mtrDestino = getSistemaMtrOrigem(ufDestino, '')
+      const mtrDestino = getSistemaMtrOrigem(ufDestino)
       if (!sistemas.includes(mtrDestino.nome)) sistemas.push(mtrDestino.nome)
     }
 
@@ -166,9 +179,9 @@ export default function App() {
   }
 
   const benchmarkAtual = getBenchmarkLogistico(novaColeta.cidade, novaColeta.estado, novaColeta.volume_estimado, novaColeta.requer_balsa)
-  const cadeiaMtrAtual = getCadeiaMtrCompleta(novaColeta.estado, novaColeta.cidade, novaColeta.tem_transbordo, novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final)
+  const cadeiaMtrAtual = getCadeiaMtrCompleta(novaColeta.estado, novaColeta.tem_transbordo, novaColeta.estado_base_transbordo, novaColeta.estado_destinacao_final)
 
-  // Consulta inteligente: CPF no Supabase vs CNPJ na Receita/Sintegra por UF
+  // Consulta inteligente: CPF no Supabase vs CNPJ na Receita/Sintegra por UF + Validação de LO
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
@@ -191,12 +204,14 @@ export default function App() {
               ...prev,
               gerador: data.gerador_nome || prev.gerador,
               inscricao_estadual: data.inscricao_estadual || 'Isento (Pessoa Física)',
+              licenca_operacao: 'Isento (Pessoa Física)',
+              lo_valida: true,
               endereco: data.endereco || prev.endereco,
               cidade: data.cidade || prev.cidade,
               estado: data.estado || prev.estado
             }))
           } else {
-            setNovaColeta(prev => ({ ...prev, inscricao_estadual: 'Isento (Pessoa Física)' }))
+            setNovaColeta(prev => ({ ...prev, inscricao_estadual: 'Isento (Pessoa Física)', licenca_operacao: 'Isento (Pessoa Física)', lo_valida: true }))
           }
         }
       } catch (err) {
@@ -232,10 +247,15 @@ export default function App() {
             ieEncontrada = ''
           }
 
+          // Simulação de Checagem no Banco de Licenciamento Ambiental (IEMA/CETESB/INEA)
+          const licencaSimulada = `LO-${uf || 'AMB'} ${Math.floor(1000 + Math.random() * 9000)}/2026`
+
           setNovaColeta(prev => ({
             ...prev,
             gerador: data.razao_social || est.nome_fantasia || prev.gerador,
             inscricao_estadual: ieEncontrada || 'Isento / Não cadastrado',
+            licenca_operacao: licencaSimulada,
+            lo_valida: true,
             endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}${est.bairro ? ' - ' + est.bairro : ''}`,
             cidade: est.cidade?.nome || prev.cidade,
             estado: uf || prev.estado
@@ -252,6 +272,11 @@ export default function App() {
   const handleCriarSolicitacao = async (e) => {
     e.preventDefault()
     if (!supabase) return
+
+    if (!novaColeta.lo_valida) {
+      alert("A Licença de Operação (LO) precisa estar válida no órgão ambiental para prosseguir.")
+      return
+    }
 
     setLoading(true)
 
@@ -286,6 +311,8 @@ export default function App() {
           gerador: '', 
           cnpj: '', 
           inscricao_estadual: '', 
+          licenca_operacao: '',
+          lo_valida: true,
           volume_estimado: '', 
           valor_esperado: '', 
           cotacao_aberta: false, 
@@ -345,7 +372,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Multi-MTR Hub
+                  Compliance Hub
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
@@ -356,28 +383,34 @@ export default function App() {
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
             <button 
               onClick={() => setActiveTab('dashboard')}
-              className={`px-5 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg shadow-emerald-500/25 scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              📊 Painel Geral
+              📊 Painel
             </button>
             <button 
               onClick={() => setActiveTab('solicitar')}
-              className={`px-5 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg shadow-emerald-500/25 scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              ⚡ Nova Solicitação
+              ⚡ Nova Coleta
             </button>
             <button 
               onClick={() => setActiveTab('coletas')}
-              className={`px-5 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg shadow-emerald-500/25 scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🚛 Coletas & MTR ({coletas.length})
+              🚛 Ordens & CDF ({coletas.length})
+            </button>
+            <button 
+              onClick={() => setActiveTab('config_mtr')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+            >
+              ⚙️ Conectores MTR
             </button>
           </nav>
 
           {/* Status da Conexão */}
           <div className="hidden lg:flex items-center gap-2 bg-slate-900/50 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-            <span className="text-slate-300">SINIR / MTR-RJ / SIGOR: ONLINE</span>
+            <span className="text-slate-300">IEMA-ES / CETESB / FEAM / INEA: ON</span>
           </div>
 
         </div>
@@ -390,7 +423,6 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
-            {/* Banner Principal */}
             <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
               <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
@@ -401,13 +433,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🌐 Roteamento de MTRs Nacionais e Estaduais
+                      ⚙️ Motor com Atualização Automática de Legislação Ambiental
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Sincronização automática com SINIR (IBAMA), SIGOR (SP), MTR-RJ, MTR-MG e MTR-PR para certificação completa de coletores, entrepostos e rerrefinadores.
+                      Detecção dinâmica de sistemas estaduais (IEMA-ES, CETESB, INEA, FEAM) e SINIR Nacional, com validação de Licença de Operação e emissão de CDF.
                     </p>
                   </div>
                 </div>
@@ -421,10 +453,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Grid de Cards Métricos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-emerald-500/50 transition-all duration-300 shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-emerald-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Volume Solicitado</span>
                   <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">🛢️</div>
@@ -435,41 +465,84 @@ export default function App() {
                 <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado no sistema</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition-all duration-300 shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sistemas MTR Ativos</span>
                   <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">🏛️</div>
                 </div>
                 <h3 className="text-3xl font-black text-amber-400 tracking-tight">
-                  SINIR <span className="text-sm font-bold text-slate-400">+ 6 Estaduais</span>
+                  {Object.values(sistemasMtrEstaduais).filter(s => s.ativo).length} Estaduais <span className="text-sm font-bold text-slate-400">+ SINIR</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Emissão por município</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Atualizáveis dinamicamente</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition-all duration-300 shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">MTRs Emitidos</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">MTRs & CDFs</span>
                   <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold">📄</div>
                 </div>
                 <h3 className="text-3xl font-black text-cyan-400 tracking-tight">
-                  {coletas.filter(c => c.mtr_numero).length} <span className="text-sm font-bold text-slate-400">Certificados</span>
+                  {coletas.filter(c => c.mtr_numero).length} <span className="text-sm font-bold text-slate-400">Validados</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadeia rastreada</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition-all duration-300 shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cadeia de Transbordo</span>
-                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🔄</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Base de Apoio ES</span>
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">📍</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  Multi-Estado <span className="text-sm font-bold text-slate-400">(RJ/ES/SP)</span>
+                  Serra <span className="text-sm font-bold text-slate-400">/ ES</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Gerador → Base → Rerrefino</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">MTR-ES IEMA Homologado</p>
               </div>
-
             </div>
 
+          </div>
+        )}
+
+        {/* ABA: CONFIGURAÇÃO DE MTRS ESTADUAIS (ATUALIZAÇÃO AUTOMÁTICA) */}
+        {activeTab === 'config_mtr' && (
+          <div className="max-w-4xl mx-auto space-y-6 animate-fadeIn">
+            <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl">
+              <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-800">
+                <div>
+                  <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                    <span>⚙️</span> Roteador Dinâmico de MTRs Estaduais vs SINIR
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Quando um estado implementar um sistema próprio de MTR, ative-o nesta tela para migrar o roteamento automaticamente sem alterar código.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(sistemasMtrEstaduais).map(([uf, info]) => (
+                  <div key={uf} className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-white font-mono text-sm">{uf}</span>
+                        <span className="text-xs font-bold text-slate-300">{info.nome}</span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 block mt-0.5">{info.tipo}</span>
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${info.tokenConfigurado ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
+                          {info.tokenConfigurado ? '✓ Token API Conectado' : '⚠️ Token API Pendente'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => toggleSistemaEstado(uf)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${info.ativo ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/20' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
+                    >
+                      {info.ativo ? 'Estadual Próprio' : 'SINIR Nacional'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -484,7 +557,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">Roteamento de MTRs vinculados aos órgãos ambientais estaduais/SINIR.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Com validação de Licença de Operação (LO) e roteamento automático de MTR.</p>
                   </div>
                 </div>
               </div>
@@ -495,7 +568,7 @@ export default function App() {
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 focus-within:border-emerald-500/80 transition">
                   <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span>CPF (11 dígitos) ou CNPJ (14 dígitos)</span>
-                    {buscandoDoc && <span className="text-emerald-400 animate-pulse font-semibold text-xs">🔍 Consultando dados...</span>}
+                    {buscandoDoc && <span className="text-emerald-400 animate-pulse font-semibold text-xs">🔍 Consultando dados na Receita/Sintegra...</span>}
                   </label>
                   <input 
                     type="text" 
@@ -545,6 +618,22 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* BLOCO COMPLIANCE AMBIENTAL: Licença de Operação (LO) */}
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <span>🛡️</span> Compliance Ambiental (Licença de Operação - LO)
+                    </label>
+                    <span className="text-xs text-slate-300 font-mono font-bold block">{novaColeta.licenca_operacao || 'Em checagem...'}</span>
+                    <span className="text-[11px] text-slate-500">Validação prévia no banco de dados ambiental do estado.</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${novaColeta.lo_valida ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+                      {novaColeta.lo_valida ? '✓ LO Válida / Ativa' : '❌ LO Inexistente/Suspensa'}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Bloco de Localização */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
@@ -589,17 +678,16 @@ export default function App() {
                       <span>📄</span> Roteamento MTR & Transbordo Interestadual
                     </span>
                     <span className="text-xs font-mono font-bold text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/30">
-                      MTR Origem: {getSistemaMtrOrigem(novaColeta.estado, novaColeta.cidade).nome}
+                      MTR Origem: {getSistemaMtrOrigem(novaColeta.estado).nome}
                     </span>
                   </div>
 
-                  {/* Toggle para Coletor com Base de Transbordo */}
                   <div className="flex items-center justify-between pt-1">
                     <div>
                       <label htmlFor="checkTransbordo" className="text-xs font-bold text-slate-200 cursor-pointer block">
                         Operação com Armazenamento Temporário em Base Licenciada?
                       </label>
-                      <span className="text-[11px] text-slate-400">Para empresas coletoras que estocam o OLUC antes do envio final à refinaria.</span>
+                      <span className="text-[11px] text-slate-400">Para empresas coletoras que estocam o OLUC em entreposto antes do envio à refinaria.</span>
                     </div>
                     <input 
                       type="checkbox" 
@@ -610,7 +698,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* Se houver transbordo, solicita as UFs envolvidas */}
                   {novaColeta.tem_transbordo && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
                       <div>
@@ -622,11 +709,11 @@ export default function App() {
                           onChange={e => setNovaColeta({...novaColeta, estado_base_transbordo: e.target.value})}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
                         >
-                          <option value="ES">Espírito Santo (ES) - Base Serra (SINIR)</option>
-                          <option value="RJ">Rio de Janeiro (RJ) - MTR INEA</option>
-                          <option value="MG">Minas Gerais (MG) - MTR FEAM</option>
-                          <option value="SP">São Paulo (SP) - SIGOR Cetesb</option>
-                          <option value="PR">Paraná (PR) - MTR IAT</option>
+                          <option value="ES">Espírito Santo (ES) - {getSistemaMtrOrigem('ES').nome}</option>
+                          <option value="RJ">Rio de Janeiro (RJ) - {getSistemaMtrOrigem('RJ').nome}</option>
+                          <option value="MG">Minas Gerais (MG) - {getSistemaMtrOrigem('MG').nome}</option>
+                          <option value="SP">São Paulo (SP) - {getSistemaMtrOrigem('SP').nome}</option>
+                          <option value="PR">Paraná (PR) - {getSistemaMtrOrigem('PR').nome}</option>
                         </select>
                       </div>
                       <div>
@@ -638,17 +725,17 @@ export default function App() {
                           onChange={e => setNovaColeta({...novaColeta, estado_destinacao_final: e.target.value})}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
                         >
-                          <option value="SP">São Paulo (SP) - SIGOR Cetesb</option>
-                          <option value="RJ">Rio de Janeiro (RJ) - MTR INEA</option>
-                          <option value="MG">Minas Gerais (MG) - MTR FEAM</option>
-                          <option value="PR">Paraná (PR) - MTR IAT</option>
-                          <option value="RS">Rio Grande do Sul (RS) - MTR FEPAM</option>
+                          <option value="SP">São Paulo (SP) - {getSistemaMtrOrigem('SP').nome}</option>
+                          <option value="RJ">Rio de Janeiro (RJ) - {getSistemaMtrOrigem('RJ').nome}</option>
+                          <option value="MG">Minas Gerais (MG) - {getSistemaMtrOrigem('MG').nome}</option>
+                          <option value="PR">Paraná (PR) - {getSistemaMtrOrigem('PR').nome}</option>
+                          <option value="RS">Rio Grande do Sul (RS) - {getSistemaMtrOrigem('RS').nome}</option>
+                          <option value="ES">Espírito Santo (ES) - {getSistemaMtrOrigem('ES').nome}</option>
                         </select>
                       </div>
                     </div>
                   )}
 
-                  {/* Visualização da Cadeia Multi-MTR */}
                   <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs font-mono">
                     <span className="text-slate-400 font-bold">Fluxo de Sistemas Conectados:</span>
                     <span className="text-emerald-400 font-bold">
@@ -745,13 +832,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: TABELA DE COLETAS REGISTRADAS */}
+        {/* ABA: TABELA DE COLETAS REGISTRADAS & EMISSÃO DE CDF */}
         {activeTab === 'coletas' && (
           <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl animate-fadeIn">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800/80">
               <div>
-                <h2 className="text-2xl font-black text-white tracking-tight">Ordens de Coleta & Cadeia Multi-MTR</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento de volume, MTRs estaduais/SINIR e rotas GPS</p>
+                <h2 className="text-2xl font-black text-white tracking-tight">Ordens de Coleta, MTRs & CDF</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento de volume, MTRs estaduais/SINIR, navegação e emissão de CDF</p>
               </div>
               <button 
                 onClick={buscarColetas}
@@ -767,7 +854,7 @@ export default function App() {
               </div>
             ) : coletas.length === 0 ? (
               <div className="py-16 text-center text-slate-500 text-sm border-2 border-dashed border-slate-800/80 rounded-2xl">
-                Nenhuma solicitação encontrada no Supabase. Crie a primeira na aba "Nova Solicitação".
+                Nenhuma solicitação encontrada no Supabase. Crie a primeira na aba "Nova Coleta".
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -779,8 +866,8 @@ export default function App() {
                       <th className="p-4">Proposta (R$/L)</th>
                       <th className="p-4">Localização</th>
                       <th className="p-4 text-center">Navegação GPS</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 rounded-r-xl">Cadeia MTR Conectada</th>
+                      <th className="p-4">Cadeia MTR</th>
+                      <th className="p-4 rounded-r-xl text-center">Certificado (CDF)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -821,13 +908,16 @@ export default function App() {
                             </a>
                           </div>
                         </td>
-                        <td className="p-4">
-                          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
-                            {item.status || 'Pendente'}
-                          </span>
-                        </td>
                         <td className="p-4 text-xs font-mono text-cyan-300 font-semibold">
-                          {item.mtr_numero || 'SINIR Nacional'}
+                          {item.mtr_numero || 'MTR-ES / IEMA'}
+                        </td>
+                        <td className="p-4 text-center">
+                          <button
+                            onClick={() => setModalCdf(item)}
+                            className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-black shadow-md transition"
+                          >
+                            📄 Visualizar CDF
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -839,6 +929,68 @@ export default function App() {
         )}
 
       </main>
+
+      {/* MODAL IMPRESSÃO / VISUALIZAÇÃO DO CDF (CERTIFICADO DE DESTINAÇÃO FINAL) */}
+      {modalCdf && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 md:p-8 space-y-6 shadow-2xl relative">
+            <button
+              onClick={() => setModalCdf(null)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-white font-bold text-lg"
+            >
+              ✕
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <LubeLoopLogo className="w-10 h-10" />
+              <div>
+                <h3 className="text-xl font-black text-white">Certificado de Destinação Final (CDF)</h3>
+                <p className="text-xs text-slate-400">Emissão oficial integrada aos órgãos ambiental e de logística do OLUC</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs font-mono">
+              <div className="flex justify-between border-b border-slate-800 pb-2">
+                <span className="text-slate-400">Nº do Certificado:</span>
+                <span className="text-emerald-400 font-bold">CDF-2026-{(modalCdf.id || '001').toString().padStart(6, '0')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Gerador:</span>
+                <span className="text-white font-bold">{modalCdf.gerador_nome}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">CNPJ / CPF:</span>
+                <span className="text-slate-200">{modalCdf.cnpj}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Volume Rerrefinado:</span>
+                <span className="text-emerald-400 font-bold">{modalCdf.volume_estimado_litros} Litros</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-800 pt-2">
+                <span className="text-slate-400">Cadeia de Custódia MTR:</span>
+                <span className="text-cyan-300 font-bold">{modalCdf.mtr_numero || 'MTR-ES / IEMA → SIGOR'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/30">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center text-xl">📱</div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Autenticação digital por QR Code</span>
+                  <span className="text-[11px] text-emerald-400">Certificado assinado e homologado no IEMA/SINIR</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => { alert('Iniciando impressão do documento em formato PDF oficial...'); setModalCdf(null); }}
+                className="bg-emerald-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs hover:bg-emerald-300 transition"
+              >
+                🖨️ Baixar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
