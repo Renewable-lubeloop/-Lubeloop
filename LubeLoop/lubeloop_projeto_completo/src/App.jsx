@@ -66,7 +66,7 @@ export default function App() {
     lo_valida: true,
     volume_estimado: '',
     valor_esperado: '',
-    cotacao_aberta: true, // Padronizado em Cotação Aberta (Leilão Reverso)
+    cotacao_aberta: true,
     requer_balsa: false,
     tem_transbordo: true,
     estado_base_transbordo: 'ES',
@@ -128,39 +128,51 @@ export default function App() {
     return sistemas
   }
 
-  // Motor de Cálculo Avançado com Composição Financeira Logística (Breakdown)
+  // Motor de Cálculo de Custos Totais da Operação (Mão de Obra, Diesel, Pneus e Adm)
   const getCalculoLogisticoDetalhado = (cidade, estado, volumeLitros, requerBalsa) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
     const cid = (cidade || '').toLowerCase().trim()
 
-    // 1. Referência do Rerrefino Nacional (Preço Bruto de Balcão)
+    // 1. Cotação de Referência Bruta do Rerrefino Nacional (Preço de Balcão Usina)
     const precoBrutoRerrefino = 2.40 
 
-    // 2. Desconto de Escala por Volume (Frete diluído por parada)
-    let custoFretePorLitro = 0.70
-    if (vol >= 2000) custoFretePorLitro = 0.40
-    else if (vol >= 500) custoFretePorLitro = 0.55
+    // 2. Parâmetros Trabalhistas por UF (Salário + Periculosidade 30% + Encargos CCT 72% + Diárias/Benefícios)
+    // Custo de Mão de Obra por Litro varia com a densidade populacional/CCT do Sindicato da Categoria
+    const custosTrabalhistasUF = {
+      'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
+    }
+    let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
 
-    // 3. Ajuste por Distância até a Base
+    // Ajuste de diluição de Mão de Obra por Escala de Volume
+    if (vol >= 2000) custoMaoDeObraMotorista *= 0.60
+    else if (vol >= 500) custoMaoDeObraMotorista *= 0.80
+
+    // 3. Custos de Insumos do Veículo (Diesel S10, Arla 32, Desgaste de Pneus e Manutenção Preventiva)
+    let custoDieselPneusMaint = 0.32
+    if (vol >= 2000) custoDieselPneusMaint = 0.20
+    else if (vol >= 500) custoDieselPneusMaint = 0.26
+
+    // Ajuste de Distância e Zona Logística
     const cidadesHub = ['serra', 'vitoria', 'vitória', 'vila velha', 'cariacica', 'viana']
-    let custoDistanciaAdicional = 0.00
-
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      custoDistanciaAdicional = -0.10 // Desconto de frete (Hub próximo)
+      custoDieselPneusMaint -= 0.05
     } else if (!['ES', 'MG', 'RJ'].includes(uf)) {
-      custoDistanciaAdicional = 0.35 // Longo curso / Transbordo interestadual
+      custoDieselPneusMaint += 0.15 // Frete longo curso
     }
 
-    // 4. Custo Adicional de Balsa / Hidrovia (Tarifa PBT + Retenção HAZMAT)
-    const custoBalsaPorLitro = requerBalsa ? 0.35 : 0.00
+    // 4. Custos Administrativos e Fixos da Empresa Coletora (Overhead, Licenças Ambientais, Telemetria)
+    const custosAdministrativos = 0.18
 
-    // 5. Total de Deduções Operacionais
-    const deducoesTotais = Math.max(0.40, custoFretePorLitro + custoDistanciaAdicional + custoBalsaPorLitro)
+    // 5. Custo de Travessia Fluvial / Balsa (Se houver)
+    const custoBalsa = requerBalsa ? 0.35 : 0.00
+
+    // 6. Total de Custos Operacionais Deduzeitores
+    const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custosAdministrativos + custoBalsa
     
-    // 6. Teto Sugerido e Limite Máximo Recomendado
-    const valorLiquidoMaximo = Math.max(0.70, precoBrutoRerrefino - deducoesTotais)
-    const valorLiquidoMinimo = Math.max(0.50, valorLiquidoMaximo * 0.75)
+    // 7. Teto Recomendado ao Gerador
+    const valorLiquidoMaximo = Math.max(0.50, precoBrutoRerrefino - deducoesTotais)
+    const valorLiquidoMinimo = Math.max(0.40, valorLiquidoMaximo * 0.75)
 
     let nomeZona = 'Rota Terrestre Regular'
     if (uf === 'ES' && cidadesHub.includes(cid)) nomeZona = 'Hub Direto (Baixo Frete)'
@@ -169,8 +181,10 @@ export default function App() {
 
     return {
       precoBrutoRerrefino: precoBrutoRerrefino.toFixed(2),
-      custoFrete: (custoFretePorLitro + custoDistanciaAdicional).toFixed(2),
-      custoBalsa: custoBalsaPorLitro.toFixed(2),
+      custoMaoDeObraMotorista: custoMaoDeObraMotorista.toFixed(2),
+      custoDieselPneusMaint: custoDieselPneusMaint.toFixed(2),
+      custosAdministrativos: custosAdministrativos.toFixed(2),
+      custoBalsa: custoBalsa.toFixed(2),
       deducoesTotais: deducoesTotais.toFixed(2),
       tetoSugerido: valorLiquidoMaximo.toFixed(2),
       faixaTexto: `R$ ${valorLiquidoMinimo.toFixed(2)} a R$ ${valorLiquidoMaximo.toFixed(2)} / L`,
@@ -276,14 +290,13 @@ export default function App() {
       return
     }
 
-    // Trava de Segurança Comercial: alerta se o valor solicitado for muito superior ao teto calculado
     if (!novaColeta.cotacao_aberta && novaColeta.valor_esperado) {
       const valDigitado = parseFloat(novaColeta.valor_esperado)
       const teto = parseFloat(breakdownAtual.tetoSugerido)
 
       if (valDigitado > teto + 0.30) {
         const aceita = window.confirm(
-          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L está acima da viabilidade logística estimada para a sua rota (máximo recomendado: R$ ${teto.toFixed(2)}/L).\n\nDevido aos custos de frete/balsa e testes de laboratório (BS&W), o pedido pode demorar mais para receber ofertas de coletores.\n\nDeseja confirmar assim mesmo?`
+          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera os custos operacionais (mão de obra CCT, combustível, pneus e administração) calculados para sua região (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
         )
         if (!aceita) return
       }
@@ -382,7 +395,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Marketplace Transparente
+                  DRE & Margem Operacional
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
@@ -440,13 +453,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      📊 Precificação Transparente com Composição de Frete
+                      💼 Algoritmo de DRE e Custos Trabalhistas/Insumos
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Cálculo de viabilidade comercial em tempo real com detalhamento visual de custos de frete rodoviário, balsa e análise de amostragem BS&W.
+                      Composição financeira com folha trabalhista CCT, periculosidade, diesel S10, recapagem de pneus, insumos e taxa administrativa por estado.
                     </p>
                   </div>
                 </div>
@@ -553,7 +566,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM CARD DE BREAKDOWN LOGÍSTICO */}
+        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM DRE COMPLETA */}
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto animate-fadeIn">
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
@@ -564,7 +577,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">Cotação transparente com detalhamento da composição do frete e MTR.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">DRE Logística completa: Folha CCT Motoristas, Diesel, Pneus e Administração.</p>
                   </div>
                 </div>
               </div>
@@ -812,7 +825,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Radio/Checkbox Cotação Aberta */}
                   <div className="flex items-center gap-3 pt-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
                     <input 
                       type="checkbox" 
@@ -827,13 +839,13 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* CARD VISUAL DE BREAKDOWN LOGÍSTICO (COMPOSIÇÃO FINANCEIRA EXIBIDA AO GERADOR) */}
+                {/* CARD VISUAL DRE COMPLETA: MÃO DE OBRA CCT, INSUMOS E ADMINISTRAÇÃO */}
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">📊</span>
                       <h4 className="text-xs font-black text-white uppercase tracking-wider">
-                        Composição Transparente do Valor ({breakdownAtual.nomeZona})
+                        DRE Operacional por Litro ({novaColeta.estado || 'ES'})
                       </h4>
                     </div>
                     <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">
@@ -842,42 +854,60 @@ export default function App() {
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Entenda como os custos de frete rodoviário, paradas por volume e travessias impactam o valor final oferecido na ponta:
+                    Decomposição analítica dos custos operacionais envolvidos na coleta de OLUC nesta região:
                   </p>
 
-                  <div className="space-y-3 font-mono text-xs">
+                  <div className="space-y-2.5 font-mono text-xs">
                     
-                    {/* Linha 1: Preço Bruto Básico Rerrefino */}
+                    {/* Cotação de Balcão */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-300 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                        Cotação de Referência do Rerrefino (Básico SN)
+                        Preço Bruto de Balcão (Usina Rerrefino)
                       </span>
                       <span className="text-emerald-400 font-bold">+ R$ {breakdownAtual.precoBrutoRerrefino} / L</span>
                     </div>
 
-                    {/* Linha 2: Custo de Coleta e Frete */}
+                    {/* Mão de Obra e Encargos CCT */}
+                    <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                        Mão de Obra Motorista + Periculosidade 30% + CCT ({novaColeta.estado || 'ES'})
+                      </span>
+                      <span className="text-rose-400 font-bold">- R$ {breakdownAtual.custoMaoDeObraMotorista} / L</span>
+                    </div>
+
+                    {/* Diesel S10, Pneus e Manutenção */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                        Frete Rodoviário & Operação de Coleta
+                        Diesel S10, Arla 32, Desgaste de Pneus e Manutenção
                       </span>
-                      <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoFrete} / L</span>
+                      <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoDieselPneusMaint} / L</span>
                     </div>
 
-                    {/* Linha 3: Impacto Balsa (Se houver) */}
+                    {/* Custos Administrativos e Licenças */}
+                    <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+                        Despesas Administrativas, Licenças & Telemetria
+                      </span>
+                      <span className="text-purple-400 font-bold">- R$ {breakdownAtual.custosAdministrativos} / L</span>
+                    </div>
+
+                    {/* Impacto Balsa (Se houver) */}
                     {novaColeta.requer_balsa && (
                       <div className="flex justify-between items-center bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/30">
                         <span className="text-amber-300 flex items-center gap-2 font-bold">
-                          <span>🚢</span> Travessia Aquaviária / Tarifação Balsa HAZMAT
+                          <span>🚢</span> Travessia Fluvial / Tarifação Balsa HAZMAT
                         </span>
                         <span className="text-amber-300 font-bold">- R$ {breakdownAtual.custoBalsa} / L</span>
                       </div>
                     )}
 
-                    {/* Total Liquido Recomendado */}
-                    <div className="flex justify-between items-center bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/40 text-sm">
-                      <span className="text-white font-bold">Valor Líquido Recomendado ao Gerador</span>
+                    {/* Total Líquido Recomendado */}
+                    <div className="flex justify-between items-center bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/40 text-sm mt-3">
+                      <span className="text-white font-bold">Valor Líquido Sustentável ao Gerador</span>
                       <span className="text-emerald-300 font-black text-base">R$ {breakdownAtual.tetoSugerido} / L</span>
                     </div>
                   </div>
