@@ -16,7 +16,6 @@ const LubeLoopLogo = ({ className = "w-10 h-10", glow = true }) => (
         </filter>
       )}
     </defs>
-    {/* Anel de reciclagem circular */}
     <path
       d="M50 14 C30 14 14 30 14 50 C14 70 30 86 50 86 C70 86 86 70 86 50 C86 40 81 31 73 24"
       stroke="url(#lubeloopGrad)"
@@ -24,7 +23,6 @@ const LubeLoopLogo = ({ className = "w-10 h-10", glow = true }) => (
       strokeLinecap="round"
       filter={glow ? "url(#lubeloopGlow)" : undefined}
     />
-    {/* Gota de óleo central (OLUC) */}
     <path
       d="M50 28 C43 39 38 48 38 55 C38 62 43.4 67 50 67 C56.6 67 62 62 62 55 C62 48 57 39 50 28 Z"
       fill="url(#lubeloopGrad)"
@@ -52,6 +50,8 @@ export default function App() {
     cnpj: '',
     inscricao_estadual: '',
     volume_estimado: '',
+    valor_esperado: '',
+    cotacao_aberta: false,
     endereco: '',
     cidade: 'Serra',
     estado: 'ES'
@@ -164,6 +164,13 @@ export default function App() {
     if (!supabase) return
 
     setLoading(true)
+
+    const valorFinalTexto = novaColeta.cotacao_aberta 
+      ? 'Cotação Aberta (Melhor Oferta)' 
+      : novaColeta.valor_esperado 
+        ? `R$ ${parseFloat(novaColeta.valor_esperado).toFixed(2)} / L` 
+        : 'A combinar'
+
     try {
       const { error } = await supabase.from('coletas').insert([
         {
@@ -171,6 +178,7 @@ export default function App() {
           cnpj: novaColeta.cnpj,
           inscricao_estadual: novaColeta.inscricao_estadual || 'Isento / Não informada',
           volume_estimado_litros: parseFloat(novaColeta.volume_estimado),
+          valor_esperado_litro: valorFinalTexto,
           endereco: novaColeta.endereco,
           cidade: novaColeta.cidade,
           estado: novaColeta.estado,
@@ -179,11 +187,21 @@ export default function App() {
       ])
 
       if (!error) {
-        setNovaColeta({ gerador: '', cnpj: '', inscricao_estadual: '', volume_estimado: '', endereco: '', cidade: 'Serra', estado: 'ES' })
+        setNovaColeta({ 
+          gerador: '', 
+          cnpj: '', 
+          inscricao_estadual: '', 
+          volume_estimado: '', 
+          valor_esperado: '', 
+          cotacao_aberta: false, 
+          endereco: '', 
+          cidade: 'Serra', 
+          estado: 'ES' 
+        })
         buscarColetas()
         setActiveTab('coletas')
       } else {
-        alert('Erro ao registrar solicitação no Supabase.')
+        alert('Erro ao registrar solicitação no Supabase. Verifique se a coluna valor_esperado_litro existe.')
       }
     } catch (err) {
       alert('Erro na comunicação com o banco de dados.')
@@ -209,7 +227,7 @@ export default function App() {
       <div className="fixed top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="fixed bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
-      {/* Header Superior com Nova Logo Integrada */}
+      {/* Header Superior */}
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4 transition-all">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           
@@ -228,7 +246,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  SaaS
+                  Marketplace
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Gestão Inteligente & Logística de OLUC</p>
@@ -253,7 +271,7 @@ export default function App() {
               onClick={() => setActiveTab('coletas')}
               className={`px-5 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg shadow-emerald-500/25 scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🚛 Coletas & MTR ({coletas.length})
+              🚛 Coletas & Cotações ({coletas.length})
             </button>
           </nav>
 
@@ -273,25 +291,24 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
-            {/* Banner Principal com a Nova Logo em Destaque */}
+            {/* Banner Principal */}
             <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
               <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
                 
                 <div className="flex items-center gap-6">
-                  {/* Logo em tamanho grande com efeito de iluminação */}
                   <div className="p-4 rounded-3xl bg-slate-950/80 border border-slate-800/80 shadow-2xl shadow-emerald-500/20 shrink-0">
                     <LubeLoopLogo className="w-20 h-20" glow={true} />
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🌱 Plataforma SaaS Eco-Friendly
+                      💰 Marketplace & Cotação de OLUC
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
-                      LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
+                      LubeLoop <span className="text-emerald-400">Plataforma de Coleta</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Sistema integrado de gestão, automação fiscal de CNPJ/CPF e otimização de rotas para recolha de óleos lubrificantes usados.
+                      Conectando geradores de óleo usado a coletores licenciados pela ANP com cotação por litro em tempo real e rotas GPS otimizadas.
                     </p>
                   </div>
                 </div>
@@ -343,13 +360,13 @@ export default function App() {
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition-all duration-300 shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Navegação GPS</span>
-                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🗺️</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cotação Média</span>
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">💵</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  Google <span className="text-sm font-bold text-slate-400">& Apple</span>
+                  R$ 1,50 <span className="text-sm font-bold text-slate-400">a R$ 2,50/L</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Rotas ativas de recolha</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Referência regional</p>
               </div>
 
             </div>
@@ -368,7 +385,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">Preencha o CPF ou CNPJ para consulta automática de dados cadastrais.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Informe os dados cadastrais e a sua expectativa de valor pelo resíduo.</p>
                   </div>
                 </div>
               </div>
@@ -429,20 +446,65 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                      Volume Estimado (Litros)
-                    </label>
-                    <input 
-                      type="number" 
-                      required
-                      placeholder="Ex: 1000"
-                      value={novaColeta.volume_estimado}
-                      onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})}
-                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none transition"
-                    />
+                {/* Bloco de Volume e Expectativa de Valor (Marketplace) */}
+                <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                      <span>🛢️</span> Volume & Proposta Comercial
+                    </span>
+                    <span className="text-[11px] text-slate-400">Faixa de mercado: R$ 1,50 a R$ 2,50/L</span>
                   </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Volume Estimado (Litros)
+                      </label>
+                      <input 
+                        type="number" 
+                        required
+                        placeholder="Ex: 1000"
+                        value={novaColeta.volume_estimado}
+                        onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Valor Esperado por Litro (R$/L)
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        disabled={novaColeta.cotacao_aberta}
+                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta selecionada" : "Ex: 2.10"}
+                        value={novaColeta.valor_esperado}
+                        onChange={e => setNovaColeta({...novaColeta, valor_esperado: e.target.value})}
+                        className={`w-full border rounded-xl px-4 py-3 text-sm font-mono font-bold transition focus:outline-none ${novaColeta.cotacao_aberta ? 'bg-slate-900/40 border-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-amber-400 focus:border-emerald-500'}`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Checkbox Cotação Aberta */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <input 
+                      type="checkbox" 
+                      id="checkCotacao"
+                      checked={novaColeta.cotacao_aberta}
+                      onChange={e => setNovaColeta({...novaColeta, cotacao_aberta: e.target.checked, valor_esperado: e.target.checked ? '' : novaColeta.valor_esperado})}
+                      className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900"
+                    />
+                    <label htmlFor="checkCotacao" className="text-xs text-slate-300 font-medium cursor-pointer">
+                      Aceitar a melhor oferta do coletor (<span className="text-emerald-400 font-bold">Cotação Aberta</span>)
+                    </label>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed italic border-t border-slate-800/80 pt-3">
+                    💡 <strong>Nota:</strong> O valor final líquido pago pelo coletor homologado fica sujeito ao teste de amostragem (BS&W / teor de água e impurezas) realizado no ato da sucção.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
                       Endereço Completo
@@ -456,26 +518,25 @@ export default function App() {
                       className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-5">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Cidade</label>
-                    <input 
-                      type="text" 
-                      value={novaColeta.cidade}
-                      onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})}
-                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Estado (UF)</label>
-                    <input 
-                      type="text" 
-                      value={novaColeta.estado}
-                      onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})}
-                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Cidade</label>
+                      <input 
+                        type="text" 
+                        value={novaColeta.cidade}
+                        onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})}
+                        className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Estado (UF)</label>
+                      <input 
+                        type="text" 
+                        value={novaColeta.estado}
+                        onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})}
+                        className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -484,7 +545,7 @@ export default function App() {
                   disabled={loading || buscandoDoc}
                   className="w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 font-black py-4 rounded-2xl transition-all shadow-xl shadow-emerald-500/20 transform hover:scale-[1.01] active:scale-[0.99] mt-6 flex items-center justify-center gap-2"
                 >
-                  {loading ? 'A registrar no Supabase...' : '✓ Confirmar e Gerar Solicitação'}
+                  {loading ? 'A registrar no Supabase...' : '✓ Confirmar e Enviar para Cotação'}
                 </button>
               </form>
             </div>
@@ -496,8 +557,8 @@ export default function App() {
           <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl animate-fadeIn">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800/80">
               <div>
-                <h2 className="text-2xl font-black text-white tracking-tight">Ordens de Coleta Registradas</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento e atalhos diretos de rota GPS para os motoristas</p>
+                <h2 className="text-2xl font-black text-white tracking-tight">Ordens de Coleta & Propostas</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento de volume, propostas de valor (R$/L) e rotas GPS</p>
               </div>
               <button 
                 onClick={buscarColetas}
@@ -521,8 +582,8 @@ export default function App() {
                   <thead className="bg-slate-950/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                     <tr>
                       <th className="p-4 rounded-l-xl">Gerador / Documento</th>
-                      <th className="p-4">Inscrição Estadual</th>
                       <th className="p-4">Volume</th>
+                      <th className="p-4">Proposta (R$/L)</th>
                       <th className="p-4">Localização</th>
                       <th className="p-4 text-center">Navegação GPS</th>
                       <th className="p-4">Status</th>
@@ -535,12 +596,13 @@ export default function App() {
                         <td className="p-4 font-bold text-white">
                           {item.gerador_nome || 'Gerador sem nome'}
                           <span className="block text-xs font-mono font-normal text-slate-400 mt-0.5">{item.cnpj}</span>
-                        </td>
-                        <td className="p-4 text-xs font-mono text-indigo-300">
-                          {item.inscricao_estadual || 'Isento / Não informada'}
+                          <span className="block text-[11px] font-mono text-indigo-300 mt-0.5">IE: {item.inscricao_estadual || 'Isento'}</span>
                         </td>
                         <td className="p-4 font-mono text-emerald-400 font-extrabold text-base">
                           {item.volume_estimado_litros} <span className="text-xs text-emerald-500">L</span>
+                        </td>
+                        <td className="p-4 font-mono font-bold text-amber-300 text-xs">
+                          {item.valor_esperado_litro || 'Cotação Aberta'}
                         </td>
                         <td className="p-4 text-xs text-slate-300">
                           <span className="font-semibold block text-slate-200">{item.endereco}</span>
