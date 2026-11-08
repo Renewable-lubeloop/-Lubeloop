@@ -47,6 +47,7 @@ export default function App() {
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [buscandoDocUnidade, setBuscandoDocUnidade] = useState(false)
   const [modalCdf, setModalCdf] = useState(null)
+  const [filtroTipoDashboard, setFiltroTipoDashboard] = useState('todos')
 
   // Mapeamento Dinâmico de Sistemas de MTR por Estado
   const [sistemasMtrEstaduais, setSistemasMtrEstaduais] = useState({
@@ -190,23 +191,19 @@ export default function App() {
     const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
     const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
-    // 1. Preço de Referência do Rerrefino Nacional
     const precoBrutoRerrefino = 2.40 
 
-    // 2. Custo de Mão de Obra CCT e Encargos Regionais
     const custosTrabalhistasUF = {
       'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
     }
     let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
 
-    // 3. Coleta Capilar Local (Diesel S10, Pneus e Manutenção)
     let custoDieselPneusMaint = 0.30
     const cidadesHub = ['vitoria', 'vitória', 'serra', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
       custoDieselPneusMaint -= 0.04
     }
 
-    // 4. CONSULTA DINÂMICA ANP/SUPABASE: Unidades Autorizadas de Transbordo e Rerrefino
     let custoFreteTransbordo = 0.00
     let nomeUsinaProxima = 'Envio Direto Usina Autorizada ANP'
 
@@ -248,35 +245,19 @@ export default function App() {
       else custoFreteTransbordo = 0.18
     }
 
-    // 5. Custos Administrativos e Licenciamento
     const custosAdministrativos = 0.18
-
-    // 6. Custo de Travessia Fluvial / Balsa
     const custoBalsa = requerBalsa ? 0.35 : 0.00
-
-    // 7. Total Deduções Operacionais
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
-    
-    // Teto Base Calculado
     const tetoBaseCalculado = Math.max(0.30, precoBrutoRerrefino - deducoesTotais)
 
-    // 8. ESCALONAMENTO INTERNO E SILENCIOSO POR FAIXA DE VOLUME
-    // <= 200L: -25% | <= 300L: -20% | <= 500L: -15% | <= 1000L: -10% | <= 1500L: -5% | > 1500L: 100%
+    // Escalonamento Silencioso
     let fatorEscala = 1.00
+    if (vol > 0 && vol <= 200) fatorEscala = 0.75
+    else if (vol > 200 && vol <= 300) fatorEscala = 0.80
+    else if (vol > 300 && vol <= 500) fatorEscala = 0.85
+    else if (vol > 500 && vol <= 1000) fatorEscala = 0.90
+    else if (vol > 1000 && vol <= 1500) fatorEscala = 0.95
 
-    if (vol > 0 && vol <= 200) {
-      fatorEscala = 0.75
-    } else if (vol > 200 && vol <= 300) {
-      fatorEscala = 0.80
-    } else if (vol > 300 && vol <= 500) {
-      fatorEscala = 0.85
-    } else if (vol > 500 && vol <= 1000) {
-      fatorEscala = 0.90
-    } else if (vol > 1000 && vol <= 1500) {
-      fatorEscala = 0.95
-    }
-
-    // O valor resultante reflete a margem final sem exibir o desconto ao gerador
     const valorLiquidoMaximo = tetoBaseCalculado * fatorEscala
     const valorLiquidoMinimo = Math.max(0.20, valorLiquidoMaximo * 0.75)
 
@@ -299,7 +280,6 @@ export default function App() {
     }
   }
 
-  // Recálculo Reativo da DRE
   useEffect(() => {
     const recalcularDRE = async () => {
       const res = await getCalculoLogisticoDetalhadoDinamico(
@@ -331,7 +311,6 @@ export default function App() {
     novaColeta.estado_destinacao_final
   )
 
-  // Consulta de CNPJ/CPF do Gerador
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
@@ -418,7 +397,6 @@ export default function App() {
     }
   }
 
-  // Consulta de CNPJ para Cadastro de Unidade Operacional (Bases/Rerrefinadores ANP)
   const handleCnpjUnidadeChange = async (e) => {
     const doc = e.target.value
     setNovaUnidade(prev => ({ ...prev, cnpj: doc }))
@@ -488,7 +466,7 @@ export default function App() {
       ])
 
       if (!error) {
-        alert("Unidade operacional (Agente ANP) cadastrada com sucesso!")
+        alert("Agente Regulado ANP cadastrado com sucesso!")
         setNovaUnidade({
           tipo: 'transbordo',
           razao_social: '',
@@ -607,6 +585,12 @@ export default function App() {
     return `https://maps.apple.com/?daddr=${destino}`
   }
 
+  // Filtragem dos Agentes Regulados para exibição na Tela Principal (Dashboard)
+  const agentesFiltradosDashboard = unidades.filter(u => {
+    if (filtroTipoDashboard === 'todos') return true
+    return u.tipo === filtroTipoDashboard
+  })
+
   return (
     <div className="min-h-screen bg-[#080C14] text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       
@@ -632,7 +616,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Conexão Agentes ANP
+                  Painel de Agentes ANP
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Plataforma Neutra de Gestão & Logística de OLUC</p>
@@ -644,7 +628,7 @@ export default function App() {
               onClick={() => setActiveTab('dashboard')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              📊 Painel
+              📊 Painel ANP
             </button>
             <button 
               onClick={() => setActiveTab('solicitar')}
@@ -662,7 +646,7 @@ export default function App() {
               onClick={() => setActiveTab('unidades')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🏢 Agentes ANP ({unidades.length})
+              🏢 Cadastrar Agente ({unidades.length})
             </button>
             <button 
               onClick={() => setActiveTab('config_mtr')}
@@ -674,7 +658,7 @@ export default function App() {
 
           <div className="hidden lg:flex items-center gap-2 bg-slate-900/50 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-            <span className="text-slate-300">SISTEMA ANP / SINIR / MTR: ATIVO</span>
+            <span className="text-slate-300">ANP / SINIR / MTR: ON</span>
           </div>
 
         </div>
@@ -682,10 +666,11 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto relative z-10">
         
-        {/* ABA: DASHBOARD */}
+        {/* ABA: DASHBOARD / TELA PRINCIPAL COM AGENTES REGULADOS ANP */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
+            {/* Banner de Boas-Vindas */}
             <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
               <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
@@ -696,76 +681,183 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🏛️ Em Conformidade com Resoluções ANP (942 e 943/2023)
+                      🏛️ Agentes Regulados ANP — Resoluções 942 & 943/2023
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
-                      LubeLoop <span className="text-emerald-400">Plataforma de Coleta & Transbordo</span>
+                      LubeLoop <span className="text-emerald-400">Portal de Agentes Autorizados</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Plataforma independente de rastreamento e DRE logística entre geradores de OLUC, coletores autorizados e usinas de rerrefino outorgadas pela ANP.
+                      Painel principal de acompanhamento dos coletores, armazenadores temporários (transbordo) e usinas de rerrefino cadastrados conforme o portal oficial da ANP.
                     </p>
                   </div>
                 </div>
 
-                <button 
-                  onClick={() => setActiveTab('solicitar')}
-                  className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-7 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center gap-2 shrink-0"
-                >
-                  <span>+ Criar Solicitação de Coleta</span>
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3 shrink-0">
+                  <a 
+                    href="https://www.gov.br/anp/pt-br/assuntos/distribuicao-e-revenda/lubrificantes/relacao-de-agentes-autorizados"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border border-slate-700 px-5 py-4 rounded-2xl font-bold text-xs transition flex items-center justify-center gap-2"
+                  >
+                    🔗 Consultar ANP ↗
+                  </a>
+                  <button 
+                    onClick={() => setActiveTab('solicitar')}
+                    className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-6 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center justify-center gap-2"
+                  >
+                    <span>+ Criar Solicitação</span>
+                  </button>
+                </div>
               </div>
             </div>
 
+            {/* Métrica de Indicadores */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-emerald-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Volume Solicitado</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Volume em Cotação</span>
                   <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">🛢️</div>
                 </div>
                 <h3 className="text-3xl font-black text-white tracking-tight">
                   {coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-sm font-bold text-emerald-400">Litros</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado na plataforma</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadastrados no sistema</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agentes Regulados ANP</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agentes ANP Ativos</span>
                   <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🏢</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  {unidades.length} <span className="text-sm font-bold text-slate-400">Ativos</span>
+                  {unidades.length} <span className="text-sm font-bold text-slate-400">Homologados</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Coletores & Rerrefinadores</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Bases & Usinas de Rerrefino</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">MTRs & CDFs</span>
-                  <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold">📄</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Armazenamento Temporário</span>
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold">🚚</div>
                 </div>
                 <h3 className="text-3xl font-black text-cyan-400 tracking-tight">
-                  {coletas.filter(c => c.mtr_numero).length} <span className="text-sm font-bold text-slate-400">Validados</span>
+                  {unidades.filter(u => u.tipo === 'transbordo').length} <span className="text-sm font-bold text-slate-400">Bases</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadeia rastreada</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Entrepostos de transbordo</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-purple-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Verificação de Licenças</span>
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">🛡️</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Usina Rerrefino</span>
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 font-bold">⚙️</div>
                 </div>
-                <h3 className="text-3xl font-black text-amber-400 tracking-tight">
-                  100% <span className="text-sm font-bold text-slate-400">Homologado</span>
+                <h3 className="text-3xl font-black text-purple-400 tracking-tight">
+                  {unidades.filter(u => u.tipo === 'rerrefino').length} <span className="text-sm font-bold text-slate-400">Usinas</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Integração ANP & Órgãos Estaduais</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Destinação Final Outorgada</p>
               </div>
+            </div>
+
+            {/* SEÇÃO PRINCIPAL DA TELA DE ENTRADA: TABELA DE AGENTES REGULADOS AUTORIZADOS */}
+            <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
+              
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+                <div>
+                  <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                    <span>🏛️</span> Relação de Agentes Reguladores Autorizados pela ANP
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Painel em tempo real dos coletores, armazenadores temporários e rerrefinadores com licenças ativas na ANP.
+                  </p>
+                </div>
+
+                {/* Filtros rápidos por atividade */}
+                <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                  <button
+                    onClick={() => setFiltroTipoDashboard('todos')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'todos' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Todos ({unidades.length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroTipoDashboard('transbordo')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'transbordo' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Coletores / Bases ({unidades.filter(u => u.tipo === 'transbordo').length})
+                  </button>
+                  <button
+                    onClick={() => setFiltroTipoDashboard('rerrefino')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'rerrefino' ? 'bg-purple-500 text-white' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Rerrefinadores ({unidades.filter(u => u.tipo === 'rerrefino').length})
+                  </button>
+                </div>
+              </div>
+
+              {unidades.length === 0 ? (
+                <div className="py-12 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl space-y-3">
+                  <p>Nenhum agente regulado cadastrado no Supabase no momento.</p>
+                  <button 
+                    onClick={() => setActiveTab('unidades')}
+                    className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-500/30 transition"
+                  >
+                    + Cadastrar Primeiro Agente ANP
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="p-4">Atividade Regulada</th>
+                        <th className="p-4">Empresa / Razão Social</th>
+                        <th className="p-4">Nº Autorização ANP</th>
+                        <th className="p-4">Licença Ambiental (LO)</th>
+                        <th className="p-4">Localização da Instalação</th>
+                        <th className="p-4 text-center">Situação ANP</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {agentesFiltradosDashboard.map((u, i) => (
+                        <tr key={u.id || i} className="hover:bg-slate-800/40 transition">
+                          <td className="p-4">
+                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
+                              {u.tipo === 'transbordo' ? 'Coletor / Armazenador' : 'Rerrefinador Outorgado'}
+                            </span>
+                          </td>
+                          <td className="p-4 font-sans font-bold text-white">
+                            {u.nome_fantasia || u.razao_social}
+                            <span className="block text-[11px] font-mono text-slate-400 font-normal mt-0.5">{u.cnpj}</span>
+                          </td>
+                          <td className="p-4 text-emerald-400 font-bold">
+                            {u.autorizacao_anp || 'ANP-SIMP-REGULADO'}
+                          </td>
+                          <td className="p-4 text-slate-200">
+                            {u.licenca_operacao}
+                            <span className="block text-[10px] text-slate-400 font-normal">Órgão: {u.orgao_ambiental}</span>
+                          </td>
+                          <td className="p-4 font-sans text-slate-300">
+                            <span className="font-bold text-white block">{u.cidade} / {u.estado}</span>
+                            <span className="text-[10px] text-slate-400">{u.endereco}</span>
+                          </td>
+                          <td className="p-4 text-center">
+                            <span className={`text-[10px] font-bold px-3 py-1 rounded-full border ${u.situacao_anp === 'SUSPENSO' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
+                              {u.situacao_anp || 'AUTORIZADO'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
             </div>
 
           </div>
         )}
 
-        {/* ABA: GESTÃO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
+        {/* ABA: GESTÃO E CADASTRO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
         {activeTab === 'unidades' && (
           <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
             
@@ -773,10 +865,10 @@ export default function App() {
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between pb-6 mb-6 border-b border-slate-800 gap-4">
                 <div>
                   <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>🏢</span> Cadastrar Agente Regulado ANP
+                    <span>🏢</span> Cadastrar Novo Agente Regulado ANP
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Bases de transbordo (coleta/armazenamento temporário) e usinas de rerrefino em conformidade com o portal gov.br/anp.
+                    Insira bases de armazenamento temporário (transbordo) e rerrefinadores diretamente do portal oficial gov.br/anp.
                   </p>
                 </div>
                 <a 
@@ -941,61 +1033,6 @@ export default function App() {
                 </button>
 
               </form>
-            </div>
-
-            <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 shadow-2xl">
-              <h3 className="text-lg font-black text-white mb-4 flex items-center justify-between">
-                <span>Agentes ANP Cadastrados ({unidades.length})</span>
-                <button onClick={buscarUnidades} className="text-xs text-indigo-400 hover:underline">↻ Atualizar Lista</button>
-              </h3>
-
-              {unidades.length === 0 ? (
-                <div className="py-10 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
-                  Nenhum agente cadastrado no Supabase. Preencha o formulário acima para vincular coletores e rerrefinadores autorizados pela ANP.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                      <tr>
-                        <th className="p-3">Atividade</th>
-                        <th className="p-3">Empresa / CNPJ</th>
-                        <th className="p-3">Autorização ANP / LO</th>
-                        <th className="p-3">Localização</th>
-                        <th className="p-3 text-center">Status ANP</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-mono">
-                      {unidades.map((u, i) => (
-                        <tr key={u.id || i} className="hover:bg-slate-800/40">
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
-                              {u.tipo === 'transbordo' ? 'Coletor / Base' : 'Rerrefinador'}
-                            </span>
-                          </td>
-                          <td className="p-3 font-sans font-bold text-white">
-                            {u.nome_fantasia || u.razao_social}
-                            <span className="block text-[11px] font-mono text-slate-400 font-normal">{u.cnpj}</span>
-                          </td>
-                          <td className="p-3 text-emerald-400 font-bold">
-                            {u.autorizacao_anp || 'ANP-REGULADO'}
-                            <span className="block text-[10px] text-slate-400 font-normal">LO: {u.licenca_operacao}</span>
-                          </td>
-                          <td className="p-3 font-sans text-slate-300">
-                            {u.cidade}/{u.estado}
-                            <span className="block text-[10px] text-slate-400">{u.endereco}</span>
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${u.situacao_anp === 'SUSPENSO' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
-                              {u.situacao_anp || 'AUTORIZADO'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
 
           </div>
