@@ -49,6 +49,33 @@ export default function App() {
   const [modalCdf, setModalCdf] = useState(null)
   const [filtroTipoDashboard, setFiltroTipoDashboard] = useState('todos')
 
+  // MATRIZ DINÂMICA DE PARAMETRIZAÇÃO DE CUSTOS DA DRE
+  const [parametrosCustos, setParametrosCustos] = useState({
+    precoBrutoBalcaoUsina: 2.40,
+    custoCapilarDieselPneusBase: 0.30,
+    descontoHubLocalES: 0.04,
+    custosAdministrativosTelemetria: 0.18,
+    custoBalsaFlutuanteHazmat: 0.35,
+    custoMaoDeObraCCTPorUF: {
+      'ES': 0.23,
+      'RJ': 0.26,
+      'MG': 0.24,
+      'SP': 0.28,
+      'PR': 0.25,
+      'SC': 0.25,
+      'RS': 0.25,
+      'BA': 0.22
+    },
+    custoFreteTransbordoMatriz: {
+      'ES-SP': 0.22,
+      'ES-RJ': 0.15,
+      'MG-SP': 0.16,
+      'RJ-SP': 0.12,
+      'PR-SP': 0.18,
+      'DEFAULT': 0.18
+    }
+  })
+
   // Mapeamento Dinâmico de Sistemas de MTR por Estado
   const [sistemasMtrEstaduais, setSistemasMtrEstaduais] = useState({
     'ES': { nome: 'MTR-ES / IEMA', tipo: 'Estadual Próprio (IN 012-N/2022)', ativo: true, tokenConfigurado: true },
@@ -105,7 +132,7 @@ export default function App() {
     licenca_operacao: '',
     orgao_ambiental: 'IEMA',
     autorizacao_anp: '',
-    situacao_anp: 'AUTORIZADO', // AUTORIZADO / EM_ANALISE / SUSPENSO
+    situacao_anp: 'AUTORIZADO',
     endereco: '',
     bairro: '',
     cidade: 'Vitória',
@@ -183,7 +210,7 @@ export default function App() {
     return sistemas
   }
 
-  // MOTOR DINÂMICO DE DRE + FRETE TRANSBORDO + ESCALONAMENTO INTERNO OCULTO
+  // CÁLCULO DINÂMICO DE DRE USANDO A ESTRUTURA DE CUSTOS PARAMETRIZADA
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -191,66 +218,73 @@ export default function App() {
     const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
     const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
-    const precoBrutoRerrefino = 2.40 
+    // 1. Preço de Referência Usina
+    const precoBrutoRerrefino = parseFloat(parametrosCustos.precoBrutoBalcaoUsina) || 2.40 
 
-    const custosTrabalhistasUF = {
-      'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
-    }
-    let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
+    // 2. Mão de Obra e Encargos CCT por UF Dinâmicos
+    const custoMaoDeObraMotorista = parseFloat(parametrosCustos.custoMaoDeObraCCTPorUF[uf]) || 0.24
 
-    let custoDieselPneusMaint = 0.30
+    // 3. Coleta Capilar Local Dinâmica
+    let custoDieselPneusMaint = parseFloat(parametrosCustos.custoCapilarDieselPneusBase) || 0.30
     const cidadesHub = ['vitoria', 'vitória', 'serra', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      custoDieselPneusMaint -= 0.04
+      custoDieselPneusMaint -= parseFloat(parametrosCustos.descontoHubLocalES) || 0.04
     }
 
+    // 4. Frete Transbordo Dinâmico
     let custoFreteTransbordo = 0.00
     let nomeUsinaProxima = 'Envio Direto Usina Autorizada ANP'
 
-    if (temTransbordo && supabase) {
-      try {
-        const { data: baseTransbordo } = await supabase
-          .from('unidades_operacionais')
-          .select('*')
-          .eq('tipo', 'transbordo')
-          .eq('estado', ufBaseArmazenamento)
-          .eq('ativo', true)
-          .limit(1)
-          .maybeSingle()
+    if (temTransbordo) {
+      const chaveRota = `${ufBaseArmazenamento}-${ufUsinaRerrefino}`
+      custoFreteTransbordo = parseFloat(
+        parametrosCustos.custoFreteTransbordoMatriz[chaveRota] || parametrosCustos.custoFreteTransbordoMatriz['DEFAULT'] || 0.18
+      )
 
-        const { data: usinaRerrefino } = await supabase
-          .from('unidades_operacionais')
-          .select('*')
-          .eq('tipo', 'rerrefino')
-          .eq('estado', ufUsinaRerrefino)
-          .eq('ativo', true)
-          .limit(1)
-          .maybeSingle()
+      if (supabase) {
+        try {
+          const { data: baseTransbordo } = await supabase
+            .from('unidades_operacionais')
+            .select('*')
+            .eq('tipo', 'transbordo')
+            .eq('estado', ufBaseArmazenamento)
+            .eq('ativo', true)
+            .limit(1)
+            .maybeSingle()
 
-        if (baseTransbordo && usinaRerrefino) {
-          nomeUsinaProxima = `${baseTransbordo.nome_fantasia || baseTransbordo.cidade}/${baseTransbordo.estado} ➔ ${usinaRerrefino.nome_fantasia || usinaRerrefino.cidade}/${usinaRerrefino.estado}`
-        } else if (baseTransbordo) {
-          nomeUsinaProxima = `Base ${baseTransbordo.cidade}/${baseTransbordo.estado} ➔ Rerrefino ${ufUsinaRerrefino}`
-        } else {
-          nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
+          const { data: usinaRerrefino } = await supabase
+            .from('unidades_operacionais')
+            .select('*')
+            .eq('tipo', 'rerrefino')
+            .eq('estado', ufUsinaRerrefino)
+            .eq('ativo', true)
+            .limit(1)
+            .maybeSingle()
+
+          if (baseTransbordo && usinaRerrefino) {
+            nomeUsinaProxima = `${baseTransbordo.nome_fantasia || baseTransbordo.cidade}/${baseTransbordo.estado} ➔ ${usinaRerrefino.nome_fantasia || usinaRerrefino.cidade}/${usinaRerrefino.estado}`
+          } else if (baseTransbordo) {
+            nomeUsinaProxima = `Base ${baseTransbordo.cidade}/${baseTransbordo.estado} ➔ Rerrefino ${ufUsinaRerrefino}`
+          } else {
+            nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
+          }
+        } catch (err) {
+          console.error("Erro ao consultar unidades ANP no Supabase:", err)
         }
-      } catch (err) {
-        console.error("Erro ao consultar unidades ANP no Supabase:", err)
       }
-
-      if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') custoFreteTransbordo = 0.15
-      else if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.22
-      else if (ufBaseArmazenamento === 'MG' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.16
-      else if (ufBaseArmazenamento === 'RJ' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.12
-      else custoFreteTransbordo = 0.18
     }
 
-    const custosAdministrativos = 0.18
-    const custoBalsa = requerBalsa ? 0.35 : 0.00
+    // 5. Custos Administrativos & Telemetria Dinâmicos
+    const custosAdministrativos = parseFloat(parametrosCustos.custosAdministrativosTelemetria) || 0.18
+
+    // 6. Custo Balsa Dinâmico
+    const custoBalsa = requerBalsa ? (parseFloat(parametrosCustos.custoBalsaFlutuanteHazmat) || 0.35) : 0.00
+
+    // 7. Deduções Operacionais Totais
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
     const tetoBaseCalculado = Math.max(0.30, precoBrutoRerrefino - deducoesTotais)
 
-    // Escalonamento Silencioso
+    // 8. Escalonamento Silencioso Oculto Comercial
     let fatorEscala = 1.00
     if (vol > 0 && vol <= 200) fatorEscala = 0.75
     else if (vol > 200 && vol <= 300) fatorEscala = 0.80
@@ -280,6 +314,7 @@ export default function App() {
     }
   }
 
+  // Recálculo Reativo da DRE a cada ajuste de custos ou dados da coleta
   useEffect(() => {
     const recalcularDRE = async () => {
       const res = await getCalculoLogisticoDetalhadoDinamico(
@@ -301,7 +336,8 @@ export default function App() {
     novaColeta.requer_balsa, 
     novaColeta.tem_transbordo, 
     novaColeta.estado_base_transbordo, 
-    novaColeta.estado_destinacao_final
+    novaColeta.estado_destinacao_final,
+    parametrosCustos
   ])
 
   const cadeiaMtrAtual = getCadeiaMtrCompleta(
@@ -585,7 +621,6 @@ export default function App() {
     return `https://maps.apple.com/?daddr=${destino}`
   }
 
-  // Filtragem dos Agentes Regulados para exibição na Tela Principal (Dashboard)
   const agentesFiltradosDashboard = unidades.filter(u => {
     if (filtroTipoDashboard === 'todos') return true
     return u.tipo === filtroTipoDashboard
@@ -616,7 +651,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Painel de Agentes ANP
+                  Gestão Logística Dinâmica
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Plataforma Neutra de Gestão & Logística de OLUC</p>
@@ -626,51 +661,51 @@ export default function App() {
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
             <button 
               onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              📊 Painel ANP
+              📊 Painel
             </button>
             <button 
               onClick={() => setActiveTab('solicitar')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               ⚡ Nova Coleta
             </button>
             <button 
               onClick={() => setActiveTab('coletas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🚛 Ordens & CDF ({coletas.length})
+              🚛 Ordens ({coletas.length})
             </button>
             <button 
               onClick={() => setActiveTab('unidades')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🏢 Cadastrar Agente ({unidades.length})
+              🏢 Agentes ANP ({unidades.length})
+            </button>
+            <button 
+              onClick={() => setActiveTab('config_custos')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_custos' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+            >
+              💲 Matriz Custos
             </button>
             <button 
               onClick={() => setActiveTab('config_mtr')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               ⚙️ Conectores MTR
             </button>
           </nav>
-
-          <div className="hidden lg:flex items-center gap-2 bg-slate-900/50 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
-            <span className="text-slate-300">ANP / SINIR / MTR: ON</span>
-          </div>
 
         </div>
       </header>
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto relative z-10">
         
-        {/* ABA: DASHBOARD / TELA PRINCIPAL COM AGENTES REGULADOS ANP */}
+        {/* ABA: DASHBOARD / TELA PRINCIPAL */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
-            {/* Banner de Boas-Vindas */}
             <div className="relative overflow-hidden bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/80 rounded-3xl p-8 shadow-2xl">
               <div className="absolute right-0 top-0 w-1/3 h-full bg-gradient-to-l from-emerald-500/10 to-transparent pointer-events-none"></div>
               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
@@ -711,7 +746,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Métrica de Indicadores */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-emerald-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
@@ -758,7 +792,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* SEÇÃO PRINCIPAL DA TELA DE ENTRADA: TABELA DE AGENTES REGULADOS AUTORIZADOS */}
+            {/* TABELA DE AGENTES REGULADOS AUTORIZADOS */}
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
               
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
@@ -771,7 +805,6 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Filtros rápidos por atividade */}
                 <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
                   <button
                     onClick={() => setFiltroTipoDashboard('todos')}
@@ -857,7 +890,166 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: GESTÃO E CADASTRO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
+        {/* ABA: PAINEL DE CONFIGURAÇÃO DINÂMICA DE CUSTOS DA DRE */}
+        {activeTab === 'config_custos' && (
+          <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
+            <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl">
+              <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-800">
+                <div>
+                  <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                    <span>💲</span> Matriz de Custos & Parâmetros DRE
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Edite em tempo real os custos de diesel, folha/periculosidade CCT por estado, frete de transbordo e tarifas operacionais.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                
+                {/* 1. Parâmetros Globais */}
+                <div>
+                  <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <span>⚙️</span> Parâmetros Globais de Operação & Balcão (R$/Litro)
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                        Preço Balcão (Usina Rerrefino)
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={parametrosCustos.precoBrutoBalcaoUsina}
+                        onChange={e => setParametrosCustos({
+                          ...parametrosCustos, 
+                          precoBrutoBalcaoUsina: parseFloat(e.target.value) || 0
+                        })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                        Coleta Capilar (Diesel/Pneus)
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={parametrosCustos.custoCapilarDieselPneusBase}
+                        onChange={e => setParametrosCustos({
+                          ...parametrosCustos, 
+                          custoCapilarDieselPneusBase: parseFloat(e.target.value) || 0
+                        })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-amber-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                        Administrativo / Telemetria
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={parametrosCustos.custosAdministrativosTelemetria}
+                        onChange={e => setParametrosCustos({
+                          ...parametrosCustos, 
+                          custosAdministrativosTelemetria: parseFloat(e.target.value) || 0
+                        })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-purple-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
+                        Taxa Balsa HAZMAT / Fluvial
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={parametrosCustos.custoBalsaFlutuanteHazmat}
+                        onChange={e => setParametrosCustos({
+                          ...parametrosCustos, 
+                          custoBalsaFlutuanteHazmat: parseFloat(e.target.value) || 0
+                        })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-cyan-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. CCT / Mão de Obra por Estado */}
+                <div>
+                  <h3 className="text-sm font-bold text-rose-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <span>🚛</span> Mão de Obra, Periculosidade 30% & Convenção Coletiva (CCT por UF)
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {Object.entries(parametrosCustos.custoMaoDeObraCCTPorUF).map(([uf, valor]) => (
+                      <div key={uf} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                        <span className="font-extrabold text-white font-mono text-sm">{uf}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-slate-400 font-mono">R$</span>
+                          <input 
+                            type="number" 
+                            step="0.01"
+                            value={valor}
+                            onChange={e => setParametrosCustos({
+                              ...parametrosCustos,
+                              custoMaoDeObraCCTPorUF: {
+                                ...parametrosCustos.custoMaoDeObraCCTPorUF,
+                                [uf]: parseFloat(e.target.value) || 0
+                              }
+                            })}
+                            className="w-16 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-rose-400 font-mono font-bold text-right focus:border-rose-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Matriz de Frete Transbordo entre Estados */}
+                <div>
+                  <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <span>🔄</span> Matriz de Frete de Transbordo (Base ➔ Usina)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {Object.entries(parametrosCustos.custoFreteTransbordoMatriz).map(([rota, valor]) => (
+                      <div key={rota} className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                        <div>
+                          <span className="font-extrabold text-white font-mono text-xs block">
+                            {rota === 'DEFAULT' ? 'Outras Rotas (Padrão)' : `Trecho ${rota}`}
+                          </span>
+                          <span className="text-[10px] text-slate-500">Transferência de Entreposto</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-slate-400 font-mono">R$</span>
+                          <input 
+                            type="number" 
+                            step="0.01"
+                            value={valor}
+                            onChange={e => setParametrosCustos({
+                              ...parametrosCustos,
+                              custoFreteTransbordoMatriz: {
+                                ...parametrosCustos.custoFreteTransbordoMatriz,
+                                [rota]: parseFloat(e.target.value) || 0
+                              }
+                            })}
+                            className="w-20 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-cyan-400 font-mono font-bold text-right focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ABA: GESTÃO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
         {activeTab === 'unidades' && (
           <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
             
@@ -1100,7 +1292,6 @@ export default function App() {
 
               <form onSubmit={handleCriarSolicitacao} className="space-y-6">
                 
-                {/* Campo de Documento */}
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 focus-within:border-emerald-500/80 transition">
                   <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span>CPF (11 dígitos) ou CNPJ (14 dígitos)</span>
@@ -1154,7 +1345,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Compliance Ambiental (LO) */}
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
                     <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -1170,7 +1360,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bloco de Localização */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -1207,7 +1396,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Modal de Transporte & Balsas */}
                 <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="text-xl">🚢</span>
@@ -1227,7 +1415,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* Roteamento MTR & Transbordo de Base Intermediária */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-cyan-500/30 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
                     <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1299,7 +1486,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* BLOCO DE VOLUME E ESCOLHA DE PROPOSTA */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
@@ -1354,7 +1540,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* CARD VISUAL DRE COMPLETA (SEM DADOS INTERNOS DE ESCALONAMENTO) */}
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
@@ -1369,12 +1554,11 @@ export default function App() {
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Composição dos custos de coleta capilar, folha CCT e o <strong>frete de transferência da base para o rerrefino</strong>:
+                    Composição calculada reativamente a partir da **Matriz de Custos Dinâmicos**:
                   </p>
 
                   <div className="space-y-2.5 font-mono text-xs">
                     
-                    {/* Preço de Balcão */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-300 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -1383,7 +1567,6 @@ export default function App() {
                       <span className="text-emerald-400 font-bold">+ R$ {breakdownAtual.precoBrutoRerrefino} / L</span>
                     </div>
 
-                    {/* Mão de Obra CCT */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-rose-400"></span>
@@ -1392,7 +1575,6 @@ export default function App() {
                       <span className="text-rose-400 font-bold">- R$ {breakdownAtual.custoMaoDeObraMotorista} / L</span>
                     </div>
 
-                    {/* Coleta Capilar */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-400"></span>
@@ -1401,7 +1583,6 @@ export default function App() {
                       <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoDieselPneusMaint} / L</span>
                     </div>
 
-                    {/* FRETE DE TRANSBORDO */}
                     {novaColeta.tem_transbordo && (
                       <div className="flex justify-between items-center bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30">
                         <span className="text-cyan-300 flex items-center gap-2 font-bold">
@@ -1411,7 +1592,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Custos Administrativos */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-purple-400"></span>
@@ -1420,7 +1600,6 @@ export default function App() {
                       <span className="text-purple-400 font-bold">- R$ {breakdownAtual.custosAdministrativos} / L</span>
                     </div>
 
-                    {/* Balsa (Se houver) */}
                     {novaColeta.requer_balsa && (
                       <div className="flex justify-between items-center bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/30">
                         <span className="text-amber-300 flex items-center gap-2 font-bold">
@@ -1430,7 +1609,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Total Líquido Recomendado */}
                     <div className="flex justify-between items-center bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/40 text-sm mt-3">
                       <span className="text-white font-bold">Valor Líquido Sustentável ao Gerador</span>
                       <span className="text-emerald-300 font-black text-base">R$ {breakdownAtual.tetoSugerido} / L</span>
