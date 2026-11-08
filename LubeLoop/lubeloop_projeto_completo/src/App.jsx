@@ -80,7 +80,7 @@ export default function App() {
     }
   }
 
-  // Roteador Inteligente de MTR por Cidade / UF
+  // Roteador Inteligente de MTR por Cidade / UF (Linhas 85-98 Corrigidas)
   const getSistemaMtrOrigem = (uf, cidade) => {
     const estado = (uf || '').toUpperCase().trim()
     
@@ -90,7 +90,7 @@ export default function App() {
       'MG': { nome: 'FEAM / MTR-MG', tipo: 'Estadual Próprio' },
       'SP': { nome: 'SIGOR / Cetesb (SP)', tipo: 'Estadual Próprio' },
       'PR': { nome: 'IAT / MTR-PR', tipo: 'Estadual Próprio' },
-      'SC': { nome: 'IMA / MTR-SC', tipo: 'Estadual Próprio' text },
+      'SC': { nome: 'IMA / MTR-SC', tipo: 'Estadual Próprio' },
       'RS': { nome: 'FEPAM / MTR-RS', tipo: 'Estadual Próprio' }
     }
 
