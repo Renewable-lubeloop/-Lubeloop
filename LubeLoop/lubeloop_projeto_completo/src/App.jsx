@@ -47,34 +47,6 @@ export default function App() {
   const [buscandoDoc, setBuscandoDoc] = useState(false)
   const [buscandoDocUnidade, setBuscandoDocUnidade] = useState(false)
   const [modalCdf, setModalCdf] = useState(null)
-  const [filtroTipoDashboard, setFiltroTipoDashboard] = useState('todos')
-
-  // MATRIZ DINÂMICA DE PARAMETRIZAÇÃO DE CUSTOS DA DRE
-  const [parametrosCustos, setParametrosCustos] = useState({
-    precoBrutoBalcaoUsina: 2.40,
-    custoCapilarDieselPneusBase: 0.30,
-    descontoHubLocalES: 0.04,
-    custosAdministrativosTelemetria: 0.18,
-    custoBalsaFlutuanteHazmat: 0.35,
-    custoMaoDeObraCCTPorUF: {
-      'ES': 0.23,
-      'RJ': 0.26,
-      'MG': 0.24,
-      'SP': 0.28,
-      'PR': 0.25,
-      'SC': 0.25,
-      'RS': 0.25,
-      'BA': 0.22
-    },
-    custoFreteTransbordoMatriz: {
-      'ES-SP': 0.22,
-      'ES-RJ': 0.15,
-      'MG-SP': 0.16,
-      'RJ-SP': 0.12,
-      'PR-SP': 0.18,
-      'DEFAULT': 0.18
-    }
-  })
 
   // Mapeamento Dinâmico de Sistemas de MTR por Estado
   const [sistemasMtrEstaduais, setSistemasMtrEstaduais] = useState({
@@ -132,7 +104,7 @@ export default function App() {
     licenca_operacao: '',
     orgao_ambiental: 'IEMA',
     autorizacao_anp: '',
-    situacao_anp: 'AUTORIZADO',
+    situacao_anp: 'AUTORIZADO', // AUTORIZADO / EM_ANALISE / SUSPENSO
     endereco: '',
     bairro: '',
     cidade: 'Vitória',
@@ -210,7 +182,7 @@ export default function App() {
     return sistemas
   }
 
-  // CÁLCULO DINÂMICO DE DRE USANDO A ESTRUTURA DE CUSTOS PARAMETRIZADA
+  // MOTOR DINÂMICO DE DRE + FRETE TRANSBORDO + ESCALONAMENTO INTERNO OCULTO
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -218,80 +190,93 @@ export default function App() {
     const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
     const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
-    // 1. Preço de Referência Usina
-    const precoBrutoRerrefino = parseFloat(parametrosCustos.precoBrutoBalcaoUsina) || 2.40 
+    // 1. Preço de Referência do Rerrefino Nacional
+    const precoBrutoRerrefino = 2.40 
 
-    // 2. Mão de Obra e Encargos CCT por UF Dinâmicos
-    const custoMaoDeObraMotorista = parseFloat(parametrosCustos.custoMaoDeObraCCTPorUF[uf]) || 0.24
+    // 2. Custo de Mão de Obra CCT e Encargos Regionais
+    const custosTrabalhistasUF = {
+      'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
+    }
+    let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
 
-    // 3. Coleta Capilar Local Dinâmica
-    let custoDieselPneusMaint = parseFloat(parametrosCustos.custoCapilarDieselPneusBase) || 0.30
+    // 3. Coleta Capilar Local (Diesel S10, Pneus e Manutenção)
+    let custoDieselPneusMaint = 0.30
     const cidadesHub = ['vitoria', 'vitória', 'serra', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      custoDieselPneusMaint -= parseFloat(parametrosCustos.descontoHubLocalES) || 0.04
+      custoDieselPneusMaint -= 0.04
     }
 
-    // 4. Frete Transbordo Dinâmico
+    // 4. CONSULTA DINÂMICA ANP/SUPABASE: Unidades Autorizadas de Transbordo e Rerrefino
     let custoFreteTransbordo = 0.00
     let nomeUsinaProxima = 'Envio Direto Usina Autorizada ANP'
 
-    if (temTransbordo) {
-      const chaveRota = `${ufBaseArmazenamento}-${ufUsinaRerrefino}`
-      custoFreteTransbordo = parseFloat(
-        parametrosCustos.custoFreteTransbordoMatriz[chaveRota] || parametrosCustos.custoFreteTransbordoMatriz['DEFAULT'] || 0.18
-      )
+    if (temTransbordo && supabase) {
+      try {
+        const { data: baseTransbordo } = await supabase
+          .from('unidades_operacionais')
+          .select('*')
+          .eq('tipo', 'transbordo')
+          .eq('estado', ufBaseArmazenamento)
+          .eq('ativo', true)
+          .limit(1)
+          .maybeSingle()
 
-      if (supabase) {
-        try {
-          const { data: baseTransbordo } = await supabase
-            .from('unidades_operacionais')
-            .select('*')
-            .eq('tipo', 'transbordo')
-            .eq('estado', ufBaseArmazenamento)
-            .eq('ativo', true)
-            .limit(1)
-            .maybeSingle()
+        const { data: usinaRerrefino } = await supabase
+          .from('unidades_operacionais')
+          .select('*')
+          .eq('tipo', 'rerrefino')
+          .eq('estado', ufUsinaRerrefino)
+          .eq('ativo', true)
+          .limit(1)
+          .maybeSingle()
 
-          const { data: usinaRerrefino } = await supabase
-            .from('unidades_operacionais')
-            .select('*')
-            .eq('tipo', 'rerrefino')
-            .eq('estado', ufUsinaRerrefino)
-            .eq('ativo', true)
-            .limit(1)
-            .maybeSingle()
-
-          if (baseTransbordo && usinaRerrefino) {
-            nomeUsinaProxima = `${baseTransbordo.nome_fantasia || baseTransbordo.cidade}/${baseTransbordo.estado} ➔ ${usinaRerrefino.nome_fantasia || usinaRerrefino.cidade}/${usinaRerrefino.estado}`
-          } else if (baseTransbordo) {
-            nomeUsinaProxima = `Base ${baseTransbordo.cidade}/${baseTransbordo.estado} ➔ Rerrefino ${ufUsinaRerrefino}`
-          } else {
-            nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
-          }
-        } catch (err) {
-          console.error("Erro ao consultar unidades ANP no Supabase:", err)
+        if (baseTransbordo && usinaRerrefino) {
+          nomeUsinaProxima = `${baseTransbordo.nome_fantasia || baseTransbordo.cidade}/${baseTransbordo.estado} ➔ ${usinaRerrefino.nome_fantasia || usinaRerrefino.cidade}/${usinaRerrefino.estado}`
+        } else if (baseTransbordo) {
+          nomeUsinaProxima = `Base ${baseTransbordo.cidade}/${baseTransbordo.estado} ➔ Rerrefino ${ufUsinaRerrefino}`
+        } else {
+          nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
         }
+      } catch (err) {
+        console.error("Erro ao consultar unidades ANP no Supabase:", err)
       }
+
+      if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') custoFreteTransbordo = 0.15
+      else if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.22
+      else if (ufBaseArmazenamento === 'MG' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.16
+      else if (ufBaseArmazenamento === 'RJ' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.12
+      else custoFreteTransbordo = 0.18
     }
 
-    // 5. Custos Administrativos & Telemetria Dinâmicos
-    const custosAdministrativos = parseFloat(parametrosCustos.custosAdministrativosTelemetria) || 0.18
+    // 5. Custos Administrativos e Licenciamento
+    const custosAdministrativos = 0.18
 
-    // 6. Custo Balsa Dinâmico
-    const custoBalsa = requerBalsa ? (parseFloat(parametrosCustos.custoBalsaFlutuanteHazmat) || 0.35) : 0.00
+    // 6. Custo de Travessia Fluvial / Balsa
+    const custoBalsa = requerBalsa ? 0.35 : 0.00
 
-    // 7. Deduções Operacionais Totais
+    // 7. Total Deduções Operacionais
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
+    
+    // Teto Base Calculado
     const tetoBaseCalculado = Math.max(0.30, precoBrutoRerrefino - deducoesTotais)
 
-    // 8. Escalonamento Silencioso Oculto Comercial
+    // 8. ESCALONAMENTO INTERNO E SILENCIOSO POR FAIXA DE VOLUME
+    // <= 200L: -25% | <= 300L: -20% | <= 500L: -15% | <= 1000L: -10% | <= 1500L: -5% | > 1500L: 100%
     let fatorEscala = 1.00
-    if (vol > 0 && vol <= 200) fatorEscala = 0.75
-    else if (vol > 200 && vol <= 300) fatorEscala = 0.80
-    else if (vol > 300 && vol <= 500) fatorEscala = 0.85
-    else if (vol > 500 && vol <= 1000) fatorEscala = 0.90
-    else if (vol > 1000 && vol <= 1500) fatorEscala = 0.95
 
+    if (vol > 0 && vol <= 200) {
+      fatorEscala = 0.75
+    } else if (vol > 200 && vol <= 300) {
+      fatorEscala = 0.80
+    } else if (vol > 300 && vol <= 500) {
+      fatorEscala = 0.85
+    } else if (vol > 500 && vol <= 1000) {
+      fatorEscala = 0.90
+    } else if (vol > 1000 && vol <= 1500) {
+      fatorEscala = 0.95
+    }
+
+    // O valor resultante reflete a margem final sem exibir o desconto ao gerador
     const valorLiquidoMaximo = tetoBaseCalculado * fatorEscala
     const valorLiquidoMinimo = Math.max(0.20, valorLiquidoMaximo * 0.75)
 
@@ -314,7 +299,7 @@ export default function App() {
     }
   }
 
-  // Recálculo Reativo da DRE a cada ajuste de custos ou dados da coleta
+  // Recálculo Reativo da DRE
   useEffect(() => {
     const recalcularDRE = async () => {
       const res = await getCalculoLogisticoDetalhadoDinamico(
@@ -336,8 +321,7 @@ export default function App() {
     novaColeta.requer_balsa, 
     novaColeta.tem_transbordo, 
     novaColeta.estado_base_transbordo, 
-    novaColeta.estado_destinacao_final,
-    parametrosCustos
+    novaColeta.estado_destinacao_final
   ])
 
   const cadeiaMtrAtual = getCadeiaMtrCompleta(
@@ -347,6 +331,7 @@ export default function App() {
     novaColeta.estado_destinacao_final
   )
 
+  // Consulta de CNPJ/CPF do Gerador
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
@@ -433,6 +418,7 @@ export default function App() {
     }
   }
 
+  // Consulta de CNPJ para Cadastro de Unidade Operacional (Bases/Rerrefinadores ANP)
   const handleCnpjUnidadeChange = async (e) => {
     const doc = e.target.value
     setNovaUnidade(prev => ({ ...prev, cnpj: doc }))
@@ -502,7 +488,7 @@ export default function App() {
       ])
 
       if (!error) {
-        alert("Agente Regulado ANP cadastrado com sucesso!")
+        alert("Unidade operacional (Agente ANP) cadastrada com sucesso!")
         setNovaUnidade({
           tipo: 'transbordo',
           razao_social: '',
@@ -621,11 +607,6 @@ export default function App() {
     return `https://maps.apple.com/?daddr=${destino}`
   }
 
-  const agentesFiltradosDashboard = unidades.filter(u => {
-    if (filtroTipoDashboard === 'todos') return true
-    return u.tipo === filtroTipoDashboard
-  })
-
   return (
     <div className="min-h-screen bg-[#080C14] text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
       
@@ -651,7 +632,7 @@ export default function App() {
                   Lube<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Loop</span>
                 </h1>
                 <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 tracking-widest uppercase">
-                  Gestão Logística Dinâmica
+                  Conexão Agentes ANP
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Plataforma Neutra de Gestão & Logística de OLUC</p>
@@ -661,48 +642,47 @@ export default function App() {
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
             <button 
               onClick={() => setActiveTab('dashboard')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               📊 Painel
             </button>
             <button 
               onClick={() => setActiveTab('solicitar')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               ⚡ Nova Coleta
             </button>
             <button 
               onClick={() => setActiveTab('coletas')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'coletas' ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              🚛 Ordens ({coletas.length})
+              🚛 Ordens & CDF ({coletas.length})
             </button>
             <button 
               onClick={() => setActiveTab('unidades')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               🏢 Agentes ANP ({unidades.length})
             </button>
             <button 
-              onClick={() => setActiveTab('config_custos')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_custos' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
-            >
-              💲 Matriz Custos
-            </button>
-            <button 
               onClick={() => setActiveTab('config_mtr')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
               ⚙️ Conectores MTR
             </button>
           </nav>
+
+          <div className="hidden lg:flex items-center gap-2 bg-slate-900/50 px-3.5 py-1.5 rounded-xl border border-slate-800 text-xs font-mono">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+            <span className="text-slate-300">SISTEMA ANP / SINIR / MTR: ATIVO</span>
+          </div>
 
         </div>
       </header>
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto relative z-10">
         
-        {/* ABA: DASHBOARD / TELA PRINCIPAL */}
+        {/* ABA: DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-fadeIn">
             
@@ -716,336 +696,72 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🏛️ Agentes Regulados ANP — Resoluções 942 & 943/2023
+                      🏛️ Em Conformidade com Resoluções ANP (942 e 943/2023)
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
-                      LubeLoop <span className="text-emerald-400">Portal de Agentes Autorizados</span>
+                      LubeLoop <span className="text-emerald-400">Plataforma de Coleta & Transbordo</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      Painel principal de acompanhamento dos coletores, armazenadores temporários (transbordo) e usinas de rerrefino cadastrados conforme o portal oficial da ANP.
+                      Plataforma independente de rastreamento e DRE logística entre geradores de OLUC, coletores autorizados e usinas de rerrefino outorgadas pela ANP.
                     </p>
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 shrink-0">
-                  <a 
-                    href="https://www.gov.br/anp/pt-br/assuntos/distribuicao-e-revenda/lubrificantes/relacao-de-agentes-autorizados"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-slate-800/90 hover:bg-slate-700/90 text-slate-200 border border-slate-700 px-5 py-4 rounded-2xl font-bold text-xs transition flex items-center justify-center gap-2"
-                  >
-                    🔗 Consultar ANP ↗
-                  </a>
-                  <button 
-                    onClick={() => setActiveTab('solicitar')}
-                    className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-6 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center justify-center gap-2"
-                  >
-                    <span>+ Criar Solicitação</span>
-                  </button>
-                </div>
+                <button 
+                  onClick={() => setActiveTab('solicitar')}
+                  className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 px-7 py-4 rounded-2xl font-black transition-all transform hover:scale-105 shadow-xl shadow-emerald-500/20 whitespace-nowrap flex items-center gap-2 shrink-0"
+                >
+                  <span>+ Criar Solicitação de Coleta</span>
+                </button>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-emerald-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Volume em Cotação</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Volume Solicitado</span>
                   <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold">🛢️</div>
                 </div>
                 <h3 className="text-3xl font-black text-white tracking-tight">
                   {coletas.reduce((acc, item) => acc + (Number(item.volume_estimado_litros) || 0), 0).toLocaleString()} <span className="text-sm font-bold text-emerald-400">Litros</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadastrados no sistema</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado na plataforma</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agentes ANP Ativos</span>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Agentes Regulados ANP</span>
                   <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🏢</div>
                 </div>
                 <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
-                  {unidades.length} <span className="text-sm font-bold text-slate-400">Homologados</span>
+                  {unidades.length} <span className="text-sm font-bold text-slate-400">Ativos</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Bases & Usinas de Rerrefino</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Coletores & Rerrefinadores</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Armazenamento Temporário</span>
-                  <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold">🚚</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">MTRs & CDFs</span>
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-bold">📄</div>
                 </div>
                 <h3 className="text-3xl font-black text-cyan-400 tracking-tight">
-                  {unidades.filter(u => u.tipo === 'transbordo').length} <span className="text-sm font-bold text-slate-400">Bases</span>
+                  {coletas.filter(c => c.mtr_numero).length} <span className="text-sm font-bold text-slate-400">Validados</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Entrepostos de transbordo</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadeia rastreada</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-purple-500/50 transition shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Usina Rerrefino</span>
-                  <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 font-bold">⚙️</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Verificação de Licenças</span>
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">🛡️</div>
                 </div>
-                <h3 className="text-3xl font-black text-purple-400 tracking-tight">
-                  {unidades.filter(u => u.tipo === 'rerrefino').length} <span className="text-sm font-bold text-slate-400">Usinas</span>
+                <h3 className="text-3xl font-black text-amber-400 tracking-tight">
+                  100% <span className="text-sm font-bold text-slate-400">Homologado</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Destinação Final Outorgada</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Integração ANP & Órgãos Estaduais</p>
               </div>
             </div>
 
-            {/* TABELA DE AGENTES REGULADOS AUTORIZADOS */}
-            <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
-              
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-                <div>
-                  <h3 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>🏛️</span> Relação de Agentes Reguladores Autorizados pela ANP
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Painel em tempo real dos coletores, armazenadores temporários e rerrefinadores com licenças ativas na ANP.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-                  <button
-                    onClick={() => setFiltroTipoDashboard('todos')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'todos' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Todos ({unidades.length})
-                  </button>
-                  <button
-                    onClick={() => setFiltroTipoDashboard('transbordo')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'transbordo' ? 'bg-cyan-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Coletores / Bases ({unidades.filter(u => u.tipo === 'transbordo').length})
-                  </button>
-                  <button
-                    onClick={() => setFiltroTipoDashboard('rerrefino')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${filtroTipoDashboard === 'rerrefino' ? 'bg-purple-500 text-white' : 'text-slate-400 hover:text-white'}`}
-                  >
-                    Rerrefinadores ({unidades.filter(u => u.tipo === 'rerrefino').length})
-                  </button>
-                </div>
-              </div>
-
-              {unidades.length === 0 ? (
-                <div className="py-12 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl space-y-3">
-                  <p>Nenhum agente regulado cadastrado no Supabase no momento.</p>
-                  <button 
-                    onClick={() => setActiveTab('unidades')}
-                    className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-4 py-2 rounded-xl text-xs font-bold hover:bg-indigo-500/30 transition"
-                  >
-                    + Cadastrar Primeiro Agente ANP
-                  </button>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
-                      <tr>
-                        <th className="p-4">Atividade Regulada</th>
-                        <th className="p-4">Empresa / Razão Social</th>
-                        <th className="p-4">Nº Autorização ANP</th>
-                        <th className="p-4">Licença Ambiental (LO)</th>
-                        <th className="p-4">Localização da Instalação</th>
-                        <th className="p-4 text-center">Situação ANP</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 font-mono">
-                      {agentesFiltradosDashboard.map((u, i) => (
-                        <tr key={u.id || i} className="hover:bg-slate-800/40 transition">
-                          <td className="p-4">
-                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
-                              {u.tipo === 'transbordo' ? 'Coletor / Armazenador' : 'Rerrefinador Outorgado'}
-                            </span>
-                          </td>
-                          <td className="p-4 font-sans font-bold text-white">
-                            {u.nome_fantasia || u.razao_social}
-                            <span className="block text-[11px] font-mono text-slate-400 font-normal mt-0.5">{u.cnpj}</span>
-                          </td>
-                          <td className="p-4 text-emerald-400 font-bold">
-                            {u.autorizacao_anp || 'ANP-SIMP-REGULADO'}
-                          </td>
-                          <td className="p-4 text-slate-200">
-                            {u.licenca_operacao}
-                            <span className="block text-[10px] text-slate-400 font-normal">Órgão: {u.orgao_ambiental}</span>
-                          </td>
-                          <td className="p-4 font-sans text-slate-300">
-                            <span className="font-bold text-white block">{u.cidade} / {u.estado}</span>
-                            <span className="text-[10px] text-slate-400">{u.endereco}</span>
-                          </td>
-                          <td className="p-4 text-center">
-                            <span className={`text-[10px] font-bold px-3 py-1 rounded-full border ${u.situacao_anp === 'SUSPENSO' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
-                              {u.situacao_anp || 'AUTORIZADO'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-            </div>
-
-          </div>
-        )}
-
-        {/* ABA: PAINEL DE CONFIGURAÇÃO DINÂMICA DE CUSTOS DA DRE */}
-        {activeTab === 'config_custos' && (
-          <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
-            <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl">
-              <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-800">
-                <div>
-                  <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>💲</span> Matriz de Custos & Parâmetros DRE
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Edite em tempo real os custos de diesel, folha/periculosidade CCT por estado, frete de transbordo e tarifas operacionais.
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-8">
-                
-                {/* 1. Parâmetros Globais */}
-                <div>
-                  <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <span>⚙️</span> Parâmetros Globais de Operação & Balcão (R$/Litro)
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Preço Balcão (Usina Rerrefino)
-                      </label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        value={parametrosCustos.precoBrutoBalcaoUsina}
-                        onChange={e => setParametrosCustos({
-                          ...parametrosCustos, 
-                          precoBrutoBalcaoUsina: parseFloat(e.target.value) || 0
-                        })}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Coleta Capilar (Diesel/Pneus)
-                      </label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        value={parametrosCustos.custoCapilarDieselPneusBase}
-                        onChange={e => setParametrosCustos({
-                          ...parametrosCustos, 
-                          custoCapilarDieselPneusBase: parseFloat(e.target.value) || 0
-                        })}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-amber-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Administrativo / Telemetria
-                      </label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        value={parametrosCustos.custosAdministrativosTelemetria}
-                        onChange={e => setParametrosCustos({
-                          ...parametrosCustos, 
-                          custosAdministrativosTelemetria: parseFloat(e.target.value) || 0
-                        })}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-purple-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-
-                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                      <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-                        Taxa Balsa HAZMAT / Fluvial
-                      </label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        value={parametrosCustos.custoBalsaFlutuanteHazmat}
-                        onChange={e => setParametrosCustos({
-                          ...parametrosCustos, 
-                          custoBalsaFlutuanteHazmat: parseFloat(e.target.value) || 0
-                        })}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm text-cyan-400 font-mono font-bold focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. CCT / Mão de Obra por Estado */}
-                <div>
-                  <h3 className="text-sm font-bold text-rose-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <span>🚛</span> Mão de Obra, Periculosidade 30% & Convenção Coletiva (CCT por UF)
-                  </h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    {Object.entries(parametrosCustos.custoMaoDeObraCCTPorUF).map(([uf, valor]) => (
-                      <div key={uf} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                        <span className="font-extrabold text-white font-mono text-sm">{uf}</span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-slate-400 font-mono">R$</span>
-                          <input 
-                            type="number" 
-                            step="0.01"
-                            value={valor}
-                            onChange={e => setParametrosCustos({
-                              ...parametrosCustos,
-                              custoMaoDeObraCCTPorUF: {
-                                ...parametrosCustos.custoMaoDeObraCCTPorUF,
-                                [uf]: parseFloat(e.target.value) || 0
-                              }
-                            })}
-                            className="w-16 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-rose-400 font-mono font-bold text-right focus:border-rose-500 focus:outline-none"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 3. Matriz de Frete Transbordo entre Estados */}
-                <div>
-                  <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <span>🔄</span> Matriz de Frete de Transbordo (Base ➔ Usina)
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {Object.entries(parametrosCustos.custoFreteTransbordoMatriz).map(([rota, valor]) => (
-                      <div key={rota} className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
-                        <div>
-                          <span className="font-extrabold text-white font-mono text-xs block">
-                            {rota === 'DEFAULT' ? 'Outras Rotas (Padrão)' : `Trecho ${rota}`}
-                          </span>
-                          <span className="text-[10px] text-slate-500">Transferência de Entreposto</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-slate-400 font-mono">R$</span>
-                          <input 
-                            type="number" 
-                            step="0.01"
-                            value={valor}
-                            onChange={e => setParametrosCustos({
-                              ...parametrosCustos,
-                              custoFreteTransbordoMatriz: {
-                                ...parametrosCustos.custoFreteTransbordoMatriz,
-                                [rota]: parseFloat(e.target.value) || 0
-                              }
-                            })}
-                            className="w-20 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-cyan-400 font-mono font-bold text-right focus:border-cyan-500 focus:outline-none"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-            </div>
           </div>
         )}
 
@@ -1057,10 +773,10 @@ export default function App() {
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between pb-6 mb-6 border-b border-slate-800 gap-4">
                 <div>
                   <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>🏢</span> Cadastrar Novo Agente Regulado ANP
+                    <span>🏢</span> Cadastrar Agente Regulado ANP
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Insira bases de armazenamento temporário (transbordo) e rerrefinadores diretamente do portal oficial gov.br/anp.
+                    Bases de transbordo (coleta/armazenamento temporário) e usinas de rerrefino em conformidade com o portal gov.br/anp.
                   </p>
                 </div>
                 <a 
@@ -1227,6 +943,61 @@ export default function App() {
               </form>
             </div>
 
+            <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 shadow-2xl">
+              <h3 className="text-lg font-black text-white mb-4 flex items-center justify-between">
+                <span>Agentes ANP Cadastrados ({unidades.length})</span>
+                <button onClick={buscarUnidades} className="text-xs text-indigo-400 hover:underline">↻ Atualizar Lista</button>
+              </h3>
+
+              {unidades.length === 0 ? (
+                <div className="py-10 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+                  Nenhum agente cadastrado no Supabase. Preencha o formulário acima para vincular coletores e rerrefinadores autorizados pela ANP.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Atividade</th>
+                        <th className="p-3">Empresa / CNPJ</th>
+                        <th className="p-3">Autorização ANP / LO</th>
+                        <th className="p-3">Localização</th>
+                        <th className="p-3 text-center">Status ANP</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {unidades.map((u, i) => (
+                        <tr key={u.id || i} className="hover:bg-slate-800/40">
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
+                              {u.tipo === 'transbordo' ? 'Coletor / Base' : 'Rerrefinador'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-sans font-bold text-white">
+                            {u.nome_fantasia || u.razao_social}
+                            <span className="block text-[11px] font-mono text-slate-400 font-normal">{u.cnpj}</span>
+                          </td>
+                          <td className="p-3 text-emerald-400 font-bold">
+                            {u.autorizacao_anp || 'ANP-REGULADO'}
+                            <span className="block text-[10px] text-slate-400 font-normal">LO: {u.licenca_operacao}</span>
+                          </td>
+                          <td className="p-3 font-sans text-slate-300">
+                            {u.cidade}/{u.estado}
+                            <span className="block text-[10px] text-slate-400">{u.endereco}</span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${u.situacao_anp === 'SUSPENSO' ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'}`}>
+                              {u.situacao_anp || 'AUTORIZADO'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
           </div>
         )}
 
@@ -1292,6 +1063,7 @@ export default function App() {
 
               <form onSubmit={handleCriarSolicitacao} className="space-y-6">
                 
+                {/* Campo de Documento */}
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 focus-within:border-emerald-500/80 transition">
                   <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center justify-between">
                     <span>CPF (11 dígitos) ou CNPJ (14 dígitos)</span>
@@ -1345,6 +1117,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Compliance Ambiental (LO) */}
                 <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
                     <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-1">
@@ -1360,6 +1133,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Bloco de Localização */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
@@ -1396,6 +1170,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Modal de Transporte & Balsas */}
                 <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="text-xl">🚢</span>
@@ -1415,6 +1190,7 @@ export default function App() {
                   />
                 </div>
 
+                {/* Roteamento MTR & Transbordo de Base Intermediária */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-cyan-500/30 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
                     <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -1486,6 +1262,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* BLOCO DE VOLUME E ESCOLHA DE PROPOSTA */}
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
@@ -1540,6 +1317,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* CARD VISUAL DRE COMPLETA (SEM DADOS INTERNOS DE ESCALONAMENTO) */}
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
@@ -1554,11 +1332,12 @@ export default function App() {
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Composição calculada reativamente a partir da **Matriz de Custos Dinâmicos**:
+                    Composição dos custos de coleta capilar, folha CCT e o <strong>frete de transferência da base para o rerrefino</strong>:
                   </p>
 
                   <div className="space-y-2.5 font-mono text-xs">
                     
+                    {/* Preço de Balcão */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-300 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -1567,6 +1346,7 @@ export default function App() {
                       <span className="text-emerald-400 font-bold">+ R$ {breakdownAtual.precoBrutoRerrefino} / L</span>
                     </div>
 
+                    {/* Mão de Obra CCT */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-rose-400"></span>
@@ -1575,6 +1355,7 @@ export default function App() {
                       <span className="text-rose-400 font-bold">- R$ {breakdownAtual.custoMaoDeObraMotorista} / L</span>
                     </div>
 
+                    {/* Coleta Capilar */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-400"></span>
@@ -1583,6 +1364,7 @@ export default function App() {
                       <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoDieselPneusMaint} / L</span>
                     </div>
 
+                    {/* FRETE DE TRANSBORDO */}
                     {novaColeta.tem_transbordo && (
                       <div className="flex justify-between items-center bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30">
                         <span className="text-cyan-300 flex items-center gap-2 font-bold">
@@ -1592,6 +1374,7 @@ export default function App() {
                       </div>
                     )}
 
+                    {/* Custos Administrativos */}
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
                       <span className="text-slate-400 flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-purple-400"></span>
@@ -1600,6 +1383,7 @@ export default function App() {
                       <span className="text-purple-400 font-bold">- R$ {breakdownAtual.custosAdministrativos} / L</span>
                     </div>
 
+                    {/* Balsa (Se houver) */}
                     {novaColeta.requer_balsa && (
                       <div className="flex justify-between items-center bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/30">
                         <span className="text-amber-300 flex items-center gap-2 font-bold">
@@ -1609,6 +1393,7 @@ export default function App() {
                       </div>
                     )}
 
+                    {/* Total Líquido Recomendado */}
                     <div className="flex justify-between items-center bg-emerald-950/40 p-3 rounded-xl border border-emerald-500/40 text-sm mt-3">
                       <span className="text-white font-bold">Valor Líquido Sustentável ao Gerador</span>
                       <span className="text-emerald-300 font-black text-base">R$ {breakdownAtual.tetoSugerido} / L</span>
