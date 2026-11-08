@@ -42,11 +42,13 @@ const supabase = (supabaseUrl && supabaseAnonKey)
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [coletas, setColetas] = useState([])
+  const [unidades, setUnidades] = useState([])
   const [loading, setLoading] = useState(false)
   const [buscandoDoc, setBuscandoDoc] = useState(false)
+  const [buscandoDocUnidade, setBuscandoDocUnidade] = useState(false)
   const [modalCdf, setModalCdf] = useState(null)
 
-  // Mapeamento Dinâmico de Sistemas por Estado
+  // Mapeamento Dinâmico de Sistemas de MTR por Estado
   const [sistemasMtrEstaduais, setSistemasMtrEstaduais] = useState({
     'ES': { nome: 'MTR-ES / IEMA', tipo: 'Estadual Próprio (IN 012-N/2022)', ativo: true, tokenConfigurado: true },
     'RJ': { nome: 'MTR-INEA (RJ)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: true },
@@ -58,6 +60,7 @@ export default function App() {
     'BA': { nome: 'MTR-INEMA (BA)', tipo: 'Estadual Próprio', ativo: true, tokenConfigurado: false }
   })
 
+  // Estado do Formulário de Nova Solicitação de Coleta
   const [novaColeta, setNovaColeta] = useState({
     gerador: '',
     cnpj: '',
@@ -69,15 +72,51 @@ export default function App() {
     cotacao_aberta: true,
     requer_balsa: false,
     tem_transbordo: true,
-    estado_base_transbordo: 'ES', // ex: Serra/ES
-    estado_destinacao_final: 'SP', // ex: Rerrefino SP
+    estado_base_transbordo: 'ES',
+    estado_destinacao_final: 'SP',
     endereco: '',
     cidade: 'Serra',
     estado: 'ES'
   })
 
+  // Estado da DRE Calculada em Tempo Real
+  const [breakdownAtual, setBreakdownAtual] = useState({
+    precoBrutoRerrefino: '2.40',
+    custoMaoDeObraMotorista: '0.23',
+    custoDieselPneusMaint: '0.26',
+    custoFreteTransbordo: '0.22',
+    custosAdministrativos: '0.18',
+    custoBalsa: '0.00',
+    deducoesTotais: '0.89',
+    tetoSugerido: '1.51',
+    faixaTexto: 'R$ 1.13 a R$ 1.51 / L',
+    nomeUsinaProxima: 'Base ES ➔ Usina SP',
+    nomeZona: 'Hub Direto (Baixo Frete)'
+  })
+
+  // Estado do Formulário de Cadastro de Unidades Operacionais (Bases e Usinas)
+  const [novaUnidade, setNovaUnidade] = useState({
+    tipo: 'transbordo',
+    razao_social: '',
+    nome_fantasia: '',
+    cnpj: '',
+    inscricao_estadual: '',
+    licenca_operacao: '',
+    orgao_ambiental: 'IEMA',
+    endereco: '',
+    bairro: '',
+    cidade: 'Serra',
+    estado: 'ES',
+    capacidade_estocagem_litros: '50000',
+    contato_nome: '',
+    contato_telefone: ''
+  })
+
   useEffect(() => {
-    if (supabase) buscarColetas()
+    if (supabase) {
+      buscarColetas()
+      buscarUnidades()
+    }
   }, [])
 
   const buscarColetas = async () => {
@@ -92,6 +131,19 @@ export default function App() {
       console.error("Erro ao carregar coletas:", err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const buscarUnidades = async () => {
+    if (!supabase) return
+    try {
+      const { data, error } = await supabase
+        .from('unidades_operacionais')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (!error && data) setUnidades(data)
+    } catch (err) {
+      console.error("Erro ao carregar unidades operacionais:", err)
     }
   }
 
@@ -128,18 +180,16 @@ export default function App() {
     return sistemas
   }
 
-  // Algoritmo DRE Completo com Frete de Transbordo por Proximidade de Usina
-  const getCalculoLogisticoDetalhado = (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
+  // MOTOR DINÂMICO DE CÁLCULO DE DRE E FRETE COM CONSULTA AO SUPABASE
+  const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
     const cid = (cidade || '').toLowerCase().trim()
     const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
     const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
-    // 1. Cotação Bruta de Referência do Rerrefino Nacional (Preço Balcão Usina)
     const precoBrutoRerrefino = 2.40 
 
-    // 2. Mão de Obra e Folha CCT por UF
     const custosTrabalhistasUF = {
       'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
     }
@@ -148,7 +198,6 @@ export default function App() {
     if (vol >= 2000) custoMaoDeObraMotorista *= 0.60
     else if (vol >= 500) custoMaoDeObraMotorista *= 0.80
 
-    // 3. Coleta Capilar Local (Diesel, Pneus e Manutenção)
     let custoDieselPneusMaint = 0.30
     if (vol >= 2000) custoDieselPneusMaint = 0.18
     else if (vol >= 500) custoDieselPneusMaint = 0.24
@@ -158,40 +207,52 @@ export default function App() {
       custoDieselPneusMaint -= 0.04
     }
 
-    // 4. FRETE DE TRANSBORDO / TRANSFERÊNCIA DA BASE DE APOIO ATÉ A USINA MAIS PRÓXIMA
-    // Matriz de distâncias entre entreposto e usinas de rerrefino autorizadas
     let custoFreteTransbordo = 0.00
     let nomeUsinaProxima = 'Envio Direto Usina'
 
-    if (temTransbordo) {
-      if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') {
-        custoFreteTransbordo = 0.15
-        nomeUsinaProxima = 'Base ES ➔ Usina RJ (~520 km)'
-      } else if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'SP') {
-        custoFreteTransbordo = 0.22
-        nomeUsinaProxima = 'Base ES ➔ Usina SP (~940 km)'
-      } else if (ufBaseArmazenamento === 'MG' && ufUsinaRerrefino === 'SP') {
-        custoFreteTransbordo = 0.16
-        nomeUsinaProxima = 'Base MG ➔ Usina SP (~580 km)'
-      } else if (ufBaseArmazenamento === 'RJ' && ufUsinaRerrefino === 'SP') {
-        custoFreteTransbordo = 0.12
-        nomeUsinaProxima = 'Base RJ ➔ Usina SP (~430 km)'
-      } else {
-        custoFreteTransbordo = 0.18 // Média regional de longo curso em carreta de 35m³
-        nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
+    if (temTransbordo && supabase) {
+      try {
+        const { data: baseTransbordo } = await supabase
+          .from('unidades_operacionais')
+          .select('*')
+          .eq('tipo', 'transbordo')
+          .eq('estado', ufBaseArmazenamento)
+          .eq('ativo', true)
+          .limit(1)
+          .maybeSingle()
+
+        const { data: usinaRerrefino } = await supabase
+          .from('unidades_operacionais')
+          .select('*')
+          .eq('tipo', 'rerrefino')
+          .eq('estado', ufUsinaRerrefino)
+          .eq('ativo', true)
+          .limit(1)
+          .maybeSingle()
+
+        if (baseTransbordo && usinaRerrefino) {
+          nomeUsinaProxima = `${baseTransbordo.nome_fantasia || baseTransbordo.cidade}/${baseTransbordo.estado} ➔ ${usinaRerrefino.nome_fantasia || usinaRerrefino.cidade}/${usinaRerrefino.estado}`
+        } else if (baseTransbordo) {
+          nomeUsinaProxima = `Base ${baseTransbordo.cidade}/${baseTransbordo.estado} ➔ Rerrefino ${ufUsinaRerrefino}`
+        } else {
+          nomeUsinaProxima = `Base ${ufBaseArmazenamento} ➔ Rerrefino ${ufUsinaRerrefino}`
+        }
+      } catch (err) {
+        console.error("Erro ao consultar unidades no Supabase:", err)
       }
+
+      if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') custoFreteTransbordo = 0.15
+      else if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.22
+      else if (ufBaseArmazenamento === 'MG' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.16
+      else if (ufBaseArmazenamento === 'RJ' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.12
+      else custoFreteTransbordo = 0.18
     }
 
-    // 5. Custos Administrativos e Licenças
     const custosAdministrativos = 0.18
-
-    // 6. Custo de Travessia Fluvial / Balsa
     const custoBalsa = requerBalsa ? 0.35 : 0.00
 
-    // 7. Total de Deduções
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
     
-    // 8. Teto Sugerido ao Gerador
     const valorLiquidoMaximo = Math.max(0.40, precoBrutoRerrefino - deducoesTotais)
     const valorLiquidoMinimo = Math.max(0.30, valorLiquidoMaximo * 0.75)
 
@@ -214,7 +275,22 @@ export default function App() {
     }
   }
 
-  const breakdownAtual = getCalculoLogisticoDetalhado(
+  // Recálculo Reativo da DRE a cada alteração do Formulário
+  useEffect(() => {
+    const recalcularDRE = async () => {
+      const res = await getCalculoLogisticoDetalhadoDinamico(
+        novaColeta.cidade, 
+        novaColeta.estado, 
+        novaColeta.volume_estimado, 
+        novaColeta.requer_balsa, 
+        novaColeta.tem_transbordo, 
+        novaColeta.estado_base_transbordo, 
+        novaColeta.estado_destinacao_final
+      )
+      setBreakdownAtual(res)
+    }
+    recalcularDRE()
+  }, [
     novaColeta.cidade, 
     novaColeta.estado, 
     novaColeta.volume_estimado, 
@@ -222,8 +298,8 @@ export default function App() {
     novaColeta.tem_transbordo, 
     novaColeta.estado_base_transbordo, 
     novaColeta.estado_destinacao_final
-  )
-  
+  ])
+
   const cadeiaMtrAtual = getCadeiaMtrCompleta(
     novaColeta.estado, 
     novaColeta.tem_transbordo, 
@@ -231,6 +307,7 @@ export default function App() {
     novaColeta.estado_destinacao_final
   )
 
+  // Consulta de CNPJ/CPF do Gerador
   const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
@@ -314,6 +391,102 @@ export default function App() {
       } finally {
         setBuscandoDoc(false)
       }
+    }
+  }
+
+  // Consulta de CNPJ para Cadastro de Unidade Operacional
+  const handleCnpjUnidadeChange = async (e) => {
+    const doc = e.target.value
+    setNovaUnidade(prev => ({ ...prev, cnpj: doc }))
+    const docLimpo = doc.replace(/\D/g, '')
+
+    if (docLimpo.length === 14) {
+      setBuscandoDocUnidade(true)
+      try {
+        const res = await fetch(`https://publica.cnpj.ws/cnpj/${docLimpo}`)
+        if (res.ok) {
+          const json = await res.json()
+          const est = json.estabelecimento || {}
+          const uf = est.estado?.sigla || 'ES'
+          
+          let orgao = 'IEMA'
+          if (uf === 'SP') orgao = 'CETESB'
+          else if (uf === 'RJ') orgao = 'INEA'
+          else if (uf === 'MG') orgao = 'FEAM'
+          else if (uf === 'PR') orgao = 'IAT'
+
+          setNovaUnidade(prev => ({
+            ...prev,
+            razao_social: json.razao_social || '',
+            nome_fantasia: est.nome_fantasia || json.razao_social || '',
+            inscricao_estadual: est.inscricoes_estaduais?.[0]?.inscricao_estadual || 'Isento',
+            orgao_ambiental: orgao,
+            endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}`,
+            bairro: est.bairro || '',
+            cidade: est.cidade?.nome || '',
+            estado: uf
+          }))
+        }
+      } catch (err) {
+        console.error("Erro ao buscar CNPJ da unidade:", err)
+      } finally {
+        setBuscandoDocUnidade(false)
+      }
+    }
+  }
+
+  const handleSalvarUnidade = async (e) => {
+    e.preventDefault()
+    if (!supabase) return
+
+    setLoading(true)
+    try {
+      const { error } = await supabase.from('unidades_operacionais').insert([
+        {
+          tipo: novaUnidade.tipo,
+          razao_social: novaUnidade.razao_social,
+          nome_fantasia: novaUnidade.nome_fantasia || novaUnidade.razao_social,
+          cnpj: novaUnidade.cnpj,
+          inscricao_estadual: novaUnidade.inscricao_estadual || 'Isento',
+          licenca_operacao: novaUnidade.licenca_operacao,
+          orgao_ambiental: novaUnidade.orgao_ambiental,
+          endereco: novaUnidade.endereco,
+          bairro: novaUnidade.bairro,
+          cidade: novaUnidade.cidade,
+          estado: novaUnidade.estado,
+          capacidade_estocagem_litros: parseFloat(novaUnidade.capacidade_estocagem_litros) || 0,
+          contato_nome: novaUnidade.contato_nome,
+          contato_telefone: novaUnidade.contato_telefone,
+          ativo: true
+        }
+      ])
+
+      if (!error) {
+        alert("Unidade operacional cadastrada com sucesso!")
+        setNovaUnidade({
+          tipo: 'transbordo',
+          razao_social: '',
+          nome_fantasia: '',
+          cnpj: '',
+          inscricao_estadual: '',
+          licenca_operacao: '',
+          orgao_ambiental: 'IEMA',
+          endereco: '',
+          bairro: '',
+          cidade: 'Serra',
+          estado: 'ES',
+          capacidade_estocagem_litros: '50000',
+          contato_nome: '',
+          contato_telefone: ''
+        })
+        buscarUnidades()
+      } else {
+        alert(`Erro ao cadastrar unidade: ${error.message}`)
+      }
+    } catch (err) {
+      alert("Erro ao conectar ao Supabase.")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -458,6 +631,12 @@ export default function App() {
               🚛 Ordens & CDF ({coletas.length})
             </button>
             <button 
+              onClick={() => setActiveTab('unidades')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'unidades' ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
+            >
+              🏢 Unidades ({unidades.length})
+            </button>
+            <button 
               onClick={() => setActiveTab('config_mtr')}
               className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_mtr' ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
@@ -521,15 +700,15 @@ export default function App() {
                 <p className="text-[11px] text-slate-500 mt-2 font-medium">Acumulado no sistema</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sistemas MTR Ativos</span>
-                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">🏛️</div>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Unidades Operacionais</span>
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">🏢</div>
                 </div>
-                <h3 className="text-3xl font-black text-amber-400 tracking-tight">
-                  {Object.values(sistemasMtrEstaduais).filter(s => s.ativo).length} Estaduais <span className="text-sm font-bold text-slate-400">+ SINIR</span>
+                <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
+                  {unidades.length} <span className="text-sm font-bold text-slate-400">Cadastradas</span>
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-2 font-medium">Atualizáveis dinamicamente</p>
+                <p className="text-[11px] text-slate-500 mt-2 font-medium">Bases & Usinas no Supabase</p>
               </div>
 
               <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-cyan-500/50 transition shadow-xl">
@@ -543,16 +722,253 @@ export default function App() {
                 <p className="text-[11px] text-slate-500 mt-2 font-medium">Cadeia rastreada</p>
               </div>
 
-              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-indigo-500/50 transition shadow-xl">
+              <div className="relative group bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 hover:border-amber-500/50 transition shadow-xl">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Base de Apoio ES</span>
-                  <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold">📍</div>
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 font-bold">📍</div>
                 </div>
-                <h3 className="text-3xl font-black text-indigo-400 tracking-tight">
+                <h3 className="text-3xl font-black text-amber-400 tracking-tight">
                   Serra <span className="text-sm font-bold text-slate-400">/ ES</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-2 font-medium">MTR-ES IEMA Homologado</p>
               </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* ABA: GESTÃO DE UNIDADES OPERACIONAIS (BASES E USINAS) */}
+        {activeTab === 'unidades' && (
+          <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
+            
+            {/* Formulário de Cadastro */}
+            <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl">
+              <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-800">
+                <div>
+                  <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+                    <span>🏢</span> Cadastrar Nova Unidade Operacional
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Cadastre bases de armazenamento temporário (transbordo) ou usinas de rerrefino contratadas para integração automática de DRE e MTR.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSalvarUnidade} className="space-y-5">
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Tipo de Unidade
+                    </label>
+                    <select
+                      value={novaUnidade.tipo}
+                      onChange={e => setNovaUnidade({...novaUnidade, tipo: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none font-bold"
+                    >
+                      <option value="transbordo">Base de Apoio / Armazenamento Temporário (Transbordo)</option>
+                      <option value="rerrefino">Usina de Rerrefino (Destinação Final)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1 flex items-center justify-between">
+                      <span>CNPJ da Unidade</span>
+                      {buscandoDocUnidade && <span className="text-indigo-400 animate-pulse text-[10px]">🔍 Buscando...</span>}
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="00.000.000/0000-00"
+                      value={novaUnidade.cnpj}
+                      onChange={handleCnpjUnidadeChange}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Razão Social
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="Nome da empresa"
+                      value={novaUnidade.razao_social}
+                      onChange={e => setNovaUnidade({...novaUnidade, razao_social: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Nome Fantasia / Sigla
+                    </label>
+                    <input 
+                      type="text"
+                      placeholder="Ex: Base Serra / Usina RJ"
+                      value={novaUnidade.nome_fantasia}
+                      onChange={e => setNovaUnidade({...novaUnidade, nome_fantasia: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Licença de Operação (LO)
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="Ex: LO-IEMA 4859/2025"
+                      value={novaUnidade.licenca_operacao}
+                      onChange={e => setNovaUnidade({...novaUnidade, licenca_operacao: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Órgão Emissor da LO
+                    </label>
+                    <select
+                      value={novaUnidade.orgao_ambiental}
+                      onChange={e => setNovaUnidade({...novaUnidade, orgao_ambiental: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none font-mono"
+                    >
+                      <option value="IEMA">IEMA (Espírito Santo)</option>
+                      <option value="INEA">INEA (Rio de Janeiro)</option>
+                      <option value="CETESB">CETESB (São Paulo)</option>
+                      <option value="FEAM">FEAM (Minas Gerais)</option>
+                      <option value="IAT">IAT (Paraná)</option>
+                      <option value="IBAMA">IBAMA (Federal)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Capacidade Tanques (Litros)
+                    </label>
+                    <input 
+                      type="number"
+                      placeholder="Ex: 50000"
+                      value={novaUnidade.capacidade_estocagem_litros}
+                      onChange={e => setNovaUnidade({...novaUnidade, capacidade_estocagem_litros: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-emerald-400 font-mono font-bold focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
+                      Endereço da Unidade
+                    </label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="Rua, Número, Bairro"
+                      value={novaUnidade.endereco}
+                      onChange={e => setNovaUnidade({...novaUnidade, endereco: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Cidade</label>
+                      <input 
+                        type="text"
+                        required
+                        value={novaUnidade.cidade}
+                        onChange={e => setNovaUnidade({...novaUnidade, cidade: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">Estado (UF)</label>
+                      <input 
+                        type="text"
+                        required
+                        value={novaUnidade.estado}
+                        onChange={e => setNovaUnidade({...novaUnidade, estado: e.target.value})}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white uppercase focus:border-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={loading || buscandoDocUnidade}
+                  className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black py-3.5 rounded-xl transition shadow-lg shadow-indigo-500/20 text-xs uppercase tracking-wider"
+                >
+                  + Cadastrar Unidade no Supabase
+                </button>
+
+              </form>
+            </div>
+
+            {/* Tabela de Unidades Cadastradas */}
+            <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 shadow-2xl">
+              <h3 className="text-lg font-black text-white mb-4 flex items-center justify-between">
+                <span>Unidades Cadastradas ({unidades.length})</span>
+                <button onClick={buscarUnidades} className="text-xs text-indigo-400 hover:underline">↻ Atualizar Lista</button>
+              </h3>
+
+              {unidades.length === 0 ? (
+                <div className="py-10 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-xl">
+                  Nenhuma unidade cadastrada no Supabase. Preencha o formulário acima para adicionar a primeira base ou usina.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-slate-950 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Tipo</th>
+                        <th className="p-3">Nome / CNPJ</th>
+                        <th className="p-3">Licença Ambiental (LO)</th>
+                        <th className="p-3">Localização</th>
+                        <th className="p-3">Capacidade</th>
+                        <th className="p-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {unidades.map((u, i) => (
+                        <tr key={u.id || i} className="hover:bg-slate-800/40">
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.tipo === 'transbordo' ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30' : 'bg-purple-500/10 text-purple-300 border border-purple-500/30'}`}>
+                              {u.tipo === 'transbordo' ? 'Base Apoio' : 'Usina Rerrefino'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-sans font-bold text-white">
+                            {u.nome_fantasia || u.razao_social}
+                            <span className="block text-[11px] font-mono text-slate-400 font-normal">{u.cnpj}</span>
+                          </td>
+                          <td className="p-3 text-emerald-400 font-bold">
+                            {u.licenca_operacao}
+                            <span className="block text-[10px] text-slate-400 font-normal">Órgão: {u.orgao_ambiental}</span>
+                          </td>
+                          <td className="p-3 font-sans text-slate-300">
+                            {u.cidade}/{u.estado}
+                            <span className="block text-[10px] text-slate-400">{u.endereco}</span>
+                          </td>
+                          <td className="p-3 font-bold text-slate-200">
+                            {Number(u.capacidade_estocagem_litros || 0).toLocaleString()} L
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+                              ATIVO
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
           </div>
@@ -602,7 +1018,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM DRE COMPLETA E FRETE DE TRANSBORDO */}
+        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM DRE COMPLETA E TRANSBORDO DINÂMICO */}
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto animate-fadeIn">
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
