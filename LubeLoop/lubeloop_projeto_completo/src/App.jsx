@@ -48,13 +48,6 @@ export default function App() {
   const [buscandoDocUnidade, setBuscandoDocUnidade] = useState(false)
   const [modalCdf, setModalCdf] = useState(null)
   const [filtroTipoDashboard, setFiltroTipoDashboard] = useState('todos')
-  const [salvandoCustos, setSalvandoCustos] = useState(false)
-
-  // SIMULADOR DE CENÁRIOS (STRESS TEST)
-  const [simuladorCenario, setSimuladorCenario] = useState({
-    aumentoDieselPct: 0,
-    aumentoCctPct: 0
-  })
 
   // MATRIZ DINÂMICA DE PARAMETRIZAÇÃO DE CUSTOS DA DRE
   const [parametrosCustos, setParametrosCustos] = useState({
@@ -64,10 +57,22 @@ export default function App() {
     custosAdministrativosTelemetria: 0.18,
     custoBalsaFlutuanteHazmat: 0.35,
     custoMaoDeObraCCTPorUF: {
-      'ES': 0.23, 'RJ': 0.26, 'MG': 0.24, 'SP': 0.28, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
+      'ES': 0.23,
+      'RJ': 0.26,
+      'MG': 0.24,
+      'SP': 0.28,
+      'PR': 0.25,
+      'SC': 0.25,
+      'RS': 0.25,
+      'BA': 0.22
     },
     custoFreteTransbordoMatriz: {
-      'ES-SP': 0.22, 'ES-RJ': 0.15, 'MG-SP': 0.16, 'RJ-SP': 0.12, 'PR-SP': 0.18, 'DEFAULT': 0.18
+      'ES-SP': 0.22,
+      'ES-RJ': 0.15,
+      'MG-SP': 0.16,
+      'RJ-SP': 0.12,
+      'PR-SP': 0.18,
+      'DEFAULT': 0.18
     }
   })
 
@@ -102,7 +107,7 @@ export default function App() {
     estado: 'ES'
   })
 
-  // Estado da DRE Calculada em Tempo Real
+  // Estado da DRE Calculada em Tempo Real (Escalonamento Oculto)
   const [breakdownAtual, setBreakdownAtual] = useState({
     precoBrutoRerrefino: '2.40',
     custoMaoDeObraMotorista: '0.23',
@@ -141,51 +146,8 @@ export default function App() {
     if (supabase) {
       buscarColetas()
       buscarUnidades()
-      carregarCustosSupabase()
     }
   }, [])
-
-  const carregarCustosSupabase = async () => {
-    try {
-      const { data } = await supabase.from('parametros_custos').select('*').eq('id', 1).maybeSingle()
-      if (data) {
-        setParametrosCustos({
-          precoBrutoBalcaoUsina: Number(data.preco_balcao),
-          custoCapilarDieselPneusBase: Number(data.coleta_capilar),
-          descontoHubLocalES: 0.04,
-          custosAdministrativosTelemetria: Number(data.custo_admin),
-          custoBalsaFlutuanteHazmat: Number(data.taxa_balsa),
-          custoMaoDeObraCCTPorUF: data.cct_por_uf || parametrosCustos.custoMaoDeObraCCTPorUF,
-          custoFreteTransbordoMatriz: data.frete_transbordo || parametrosCustos.custoFreteTransbordoMatriz
-        })
-      }
-    } catch (err) {
-      console.error("Erro ao carregar matriz de custos do Supabase:", err)
-    }
-  }
-
-  const salvarCustosSupabase = async () => {
-    if (!supabase) return
-    setSalvandoCustos(true)
-    try {
-      const { error } = await supabase.from('parametros_custos').upsert({
-        id: 1,
-        preco_balcao: parametrosCustos.precoBrutoBalcaoUsina,
-        coleta_capilar: parametrosCustos.custoCapilarDieselPneusBase,
-        custo_admin: parametrosCustos.custosAdministrativosTelemetria,
-        taxa_balsa: parametrosCustos.custoBalsaFlutuanteHazmat,
-        cct_por_uf: parametrosCustos.custoMaoDeObraCCTPorUF,
-        frete_transbordo: parametrosCustos.custoFreteTransbordoMatriz,
-        updated_at: new Date()
-      })
-      if (!error) alert("Matriz de Custos sincronizada no Supabase para todos os usuários!")
-      else alert(`Erro ao salvar: ${error.message}`)
-    } catch (err) {
-      alert("Falha na comunicação com o banco de dados.")
-    } finally {
-      setSalvandoCustos(false)
-    }
-  }
 
   const buscarColetas = async () => {
     setLoading(true)
@@ -248,7 +210,7 @@ export default function App() {
     return sistemas
   }
 
-  // CÁLCULO DRE COM SIMULADOR DE IMPACTO DE DIESEL E CCT
+  // CÁLCULO DINÂMICO DE DRE USANDO A ESTRUTURA DE CUSTOS PARAMETRIZADA
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -256,31 +218,28 @@ export default function App() {
     const ufBaseArmazenamento = (ufBase || 'ES').toUpperCase().trim()
     const ufUsinaRerrefino = (ufDestino || 'SP').toUpperCase().trim()
 
+    // 1. Preço de Referência Usina
     const precoBrutoRerrefino = parseFloat(parametrosCustos.precoBrutoBalcaoUsina) || 2.40 
-    
-    // Fatores do Simulador de Cenários
-    const fatorCct = 1 + (simuladorCenario.aumentoCctPct / 100)
-    const fatorDiesel = 1 + (simuladorCenario.aumentoDieselPct / 100)
 
-    const baseCct = parseFloat(parametrosCustos.custoMaoDeObraCCTPorUF[uf]) || 0.24
-    const custoMaoDeObraMotorista = baseCct * fatorCct
+    // 2. Mão de Obra e Encargos CCT por UF Dinâmicos
+    const custoMaoDeObraMotorista = parseFloat(parametrosCustos.custoMaoDeObraCCTPorUF[uf]) || 0.24
 
-    let baseDiesel = parseFloat(parametrosCustos.custoCapilarDieselPneusBase) || 0.30
+    // 3. Coleta Capilar Local Dinâmica
+    let custoDieselPneusMaint = parseFloat(parametrosCustos.custoCapilarDieselPneusBase) || 0.30
     const cidadesHub = ['vitoria', 'vitória', 'serra', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      baseDiesel -= parseFloat(parametrosCustos.descontoHubLocalES) || 0.04
+      custoDieselPneusMaint -= parseFloat(parametrosCustos.descontoHubLocalES) || 0.04
     }
-    const custoDieselPneusMaint = baseDiesel * fatorDiesel
 
+    // 4. Frete Transbordo Dinâmico
     let custoFreteTransbordo = 0.00
     let nomeUsinaProxima = 'Envio Direto Usina Autorizada ANP'
 
     if (temTransbordo) {
       const chaveRota = `${ufBaseArmazenamento}-${ufUsinaRerrefino}`
-      const baseFrete = parseFloat(
+      custoFreteTransbordo = parseFloat(
         parametrosCustos.custoFreteTransbordoMatriz[chaveRota] || parametrosCustos.custoFreteTransbordoMatriz['DEFAULT'] || 0.18
       )
-      custoFreteTransbordo = baseFrete * fatorDiesel
 
       if (supabase) {
         try {
@@ -315,12 +274,17 @@ export default function App() {
       }
     }
 
+    // 5. Custos Administrativos & Telemetria Dinâmicos
     const custosAdministrativos = parseFloat(parametrosCustos.custosAdministrativosTelemetria) || 0.18
+
+    // 6. Custo Balsa Dinâmico
     const custoBalsa = requerBalsa ? (parseFloat(parametrosCustos.custoBalsaFlutuanteHazmat) || 0.35) : 0.00
 
+    // 7. Deduções Operacionais Totais
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
     const tetoBaseCalculado = Math.max(0.30, precoBrutoRerrefino - deducoesTotais)
 
+    // 8. Escalonamento Silencioso Oculto Comercial
     let fatorEscala = 1.00
     if (vol > 0 && vol <= 200) fatorEscala = 0.75
     else if (vol > 200 && vol <= 300) fatorEscala = 0.80
@@ -350,6 +314,7 @@ export default function App() {
     }
   }
 
+  // Recálculo Reativo da DRE a cada ajuste de custos ou dados da coleta
   useEffect(() => {
     const recalcularDRE = async () => {
       const res = await getCalculoLogisticoDetalhadoDinamico(
@@ -372,8 +337,7 @@ export default function App() {
     novaColeta.tem_transbordo, 
     novaColeta.estado_base_transbordo, 
     novaColeta.estado_destinacao_final,
-    parametrosCustos,
-    simuladorCenario
+    parametrosCustos
   ])
 
   const cadeiaMtrAtual = getCadeiaMtrCompleta(
@@ -723,7 +687,7 @@ export default function App() {
               onClick={() => setActiveTab('config_custos')}
               className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${activeTab === 'config_custos' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-lg scale-105' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}`}
             >
-              💲 Matriz & Simulador
+              💲 Matriz Custos
             </button>
             <button 
               onClick={() => setActiveTab('config_mtr')}
@@ -752,7 +716,7 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🏛️ Agentes Regulados ANP — Sincronizados com o Portal Oficial
+                      🏛️ Agentes Regulados ANP — Resoluções 942 & 943/2023
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Portal de Agentes Autorizados</span>
@@ -926,92 +890,24 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: PAINEL DE CONFIGURAÇÃO DINÂMICA DE CUSTOS DA DRE + SIMULADOR */}
+        {/* ABA: PAINEL DE CONFIGURAÇÃO DINÂMICA DE CUSTOS DA DRE */}
         {activeTab === 'config_custos' && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
-            
-            {/* SIMULADOR DE IMPACTO NA DRE (STRESS TEST) */}
-            <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
-              <div className="flex justify-between items-center border-b border-slate-800 pb-4">
-                <div>
-                  <h3 className="text-xl font-black text-amber-400 flex items-center gap-2">
-                    <span>⚡</span> Simulador de Cenários de Impacto (Diesel & CCT)
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-1">Simule aumentos no combustível ou na convenção coletiva e veja a variação no teto da DRE.</p>
-                </div>
-                <button 
-                  onClick={() => setSimuladorCenario({ aumentoDieselPct: 0, aumentoCctPct: 0 })}
-                  className="bg-slate-800 text-slate-300 text-xs px-3 py-1.5 rounded-xl hover:bg-slate-700 transition"
-                >
-                  Resetar Simulação
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-amber-400">Aumento Estimado no Óleo Diesel:</span>
-                    <span className="text-white font-mono text-sm">+{simuladorCenario.aumentoDieselPct}%</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="50" step="1"
-                    value={simuladorCenario.aumentoDieselPct}
-                    onChange={e => setSimuladorCenario({ ...simuladorCenario, aumentoDieselPct: Number(e.target.value) })}
-                    className="w-full accent-amber-400 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>0% (Atual)</span><span>+25%</span><span>+50%</span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-rose-400">Aumento na CCT / Periculosidade:</span>
-                    <span className="text-white font-mono text-sm">+{simuladorCenario.aumentoCctPct}%</span>
-                  </div>
-                  <input 
-                    type="range" min="0" max="30" step="1"
-                    value={simuladorCenario.aumentoCctPct}
-                    onChange={e => setSimuladorCenario({ ...simuladorCenario, aumentoCctPct: Number(e.target.value) })}
-                    className="w-full accent-rose-400 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>0% (Atual)</span><span>+15%</span><span>+30%</span>
-                  </div>
-                </div>
-              </div>
-
-              {(simuladorCenario.aumentoDieselPct > 0 || simuladorCenario.aumentoCctPct > 0) && (
-                <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl flex items-center justify-between text-xs">
-                  <span className="text-amber-300 font-bold">⚠️ Impacto Simulado na DRE:</span>
-                  <span className="font-mono text-white font-bold">
-                    Teto Recomendado Atualizado: <span className="text-amber-400 text-sm">R$ {breakdownAtual.tetoSugerido} / L</span>
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* MATRIZ DE CUSTOS GLOBAIS */}
-            <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-800 pb-4 gap-4">
+            <div className="bg-slate-900/80 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl">
+              <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-800">
                 <div>
                   <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                    <span>💲</span> Matriz de Custos Sincronizada (Supabase)
+                    <span>💲</span> Matriz de Custos & Parâmetros DRE
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Edite em tempo real os custos de diesel, folha/periculosidade CCT por estado e frete de transbordo.
+                    Edite em tempo real os custos de diesel, folha/periculosidade CCT por estado, frete de transbordo e tarifas operacionais.
                   </p>
                 </div>
-                <button 
-                  onClick={salvarCustosSupabase}
-                  disabled={salvandoCustos}
-                  className="bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 text-slate-950 font-black px-5 py-3 rounded-xl text-xs shadow-lg transition"
-                >
-                  {salvandoCustos ? 'Salvando...' : '💾 Sincronizar no Supabase'}
-                </button>
               </div>
 
               <div className="space-y-8">
+                
+                {/* 1. Parâmetros Globais */}
                 <div>
                   <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <span>⚙️</span> Parâmetros Globais de Operação & Balcão (R$/Litro)
@@ -1022,7 +918,8 @@ export default function App() {
                         Preço Balcão (Usina Rerrefino)
                       </label>
                       <input 
-                        type="number" step="0.01"
+                        type="number" 
+                        step="0.01"
                         value={parametrosCustos.precoBrutoBalcaoUsina}
                         onChange={e => setParametrosCustos({
                           ...parametrosCustos, 
@@ -1037,7 +934,8 @@ export default function App() {
                         Coleta Capilar (Diesel/Pneus)
                       </label>
                       <input 
-                        type="number" step="0.01"
+                        type="number" 
+                        step="0.01"
                         value={parametrosCustos.custoCapilarDieselPneusBase}
                         onChange={e => setParametrosCustos({
                           ...parametrosCustos, 
@@ -1052,7 +950,8 @@ export default function App() {
                         Administrativo / Telemetria
                       </label>
                       <input 
-                        type="number" step="0.01"
+                        type="number" 
+                        step="0.01"
                         value={parametrosCustos.custosAdministrativosTelemetria}
                         onChange={e => setParametrosCustos({
                           ...parametrosCustos, 
@@ -1067,7 +966,8 @@ export default function App() {
                         Taxa Balsa HAZMAT / Fluvial
                       </label>
                       <input 
-                        type="number" step="0.01"
+                        type="number" 
+                        step="0.01"
                         value={parametrosCustos.custoBalsaFlutuanteHazmat}
                         onChange={e => setParametrosCustos({
                           ...parametrosCustos, 
@@ -1079,18 +979,20 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* 2. CCT / Mão de Obra por Estado */}
                 <div>
                   <h3 className="text-sm font-bold text-rose-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <span>🚛</span> Mão de Obra, Periculosidade 30% & CCT por UF (R$/L)
+                    <span>🚛</span> Mão de Obra, Periculosidade 30% & Convenção Coletiva (CCT por UF)
                   </h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {Object.entries(parametrosCustos.custoMaoDeObraCCTPorUF).map(([uf, valor]) => (
-                      <div key={uf} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between">
+                      <div key={uf} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800/80 flex items-center justify-between">
                         <span className="font-extrabold text-white font-mono text-sm">{uf}</span>
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-slate-400 font-mono">R$</span>
                           <input 
-                            type="number" step="0.01"
+                            type="number" 
+                            step="0.01"
                             value={valor}
                             onChange={e => setParametrosCustos({
                               ...parametrosCustos,
@@ -1107,13 +1009,14 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* 3. Matriz de Frete Transbordo entre Estados */}
                 <div>
                   <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <span>🔄</span> Matriz de Frete de Transbordo (Base ➔ Usina)
                   </h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {Object.entries(parametrosCustos.custoFreteTransbordoMatriz).map(([rota, valor]) => (
-                      <div key={rota} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                      <div key={rota} className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
                         <div>
                           <span className="font-extrabold text-white font-mono text-xs block">
                             {rota === 'DEFAULT' ? 'Outras Rotas (Padrão)' : `Trecho ${rota}`}
@@ -1123,7 +1026,8 @@ export default function App() {
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-slate-400 font-mono">R$</span>
                           <input 
-                            type="number" step="0.01"
+                            type="number" 
+                            step="0.01"
                             value={valor}
                             onChange={e => setParametrosCustos({
                               ...parametrosCustos,
@@ -1145,7 +1049,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: GESTÃO E CADASTRO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
+        {/* ABA: GESTÃO DE UNIDADES OPERACIONAIS / AGENTES ANP */}
         {activeTab === 'unidades' && (
           <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
             
@@ -1315,7 +1219,7 @@ export default function App() {
                 <button 
                   type="submit"
                   disabled={loading || buscandoDocUnidade}
-                  className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black py-3.5 rounded-xl transition shadow-lg text-xs uppercase tracking-wider"
+                  className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black py-3.5 rounded-xl transition shadow-lg shadow-indigo-500/20 text-xs uppercase tracking-wider"
                 >
                   + Cadastrar Agente Regulado no Supabase
                 </button>
@@ -1343,7 +1247,7 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {Object.entries(sistemasMtrEstaduais).map(([uf, info]) => (
-                  <div key={uf} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                  <div key={uf} className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-extrabold text-white font-mono text-sm">{uf}</span>
@@ -1359,7 +1263,7 @@ export default function App() {
 
                     <button
                       onClick={() => toggleSistemaEstado(uf)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${info.ativo ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/40' : 'bg-slate-800 text-slate-400 border-slate-700'}`}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition border ${info.ativo ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/20' : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'}`}
                     >
                       {info.ativo ? 'Estadual Próprio' : 'SINIR Nacional'}
                     </button>
@@ -1374,8 +1278,9 @@ export default function App() {
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto animate-fadeIn">
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
-              
-              <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-800">
+              <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none"></div>
+
+              <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-800/80">
                 <div className="flex items-center gap-4">
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
@@ -1393,11 +1298,12 @@ export default function App() {
                     {buscandoDoc && <span className="text-emerald-400 animate-pulse font-semibold text-xs">🔍 Consultando dados na Receita/Sintegra...</span>}
                   </label>
                   <input 
-                    type="text" required
+                    type="text" 
+                    required
                     placeholder="Digite os números do CPF ou CNPJ"
                     value={novaColeta.cnpj}
                     onChange={handleDocumentoChange}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-base font-mono focus:border-emerald-500 focus:outline-none"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-base font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition"
                   />
                 </div>
 
@@ -1407,24 +1313,50 @@ export default function App() {
                       Razão Social / Nome do Gerador
                     </label>
                     <input 
-                      type="text" required
+                      type="text" 
+                      required
                       placeholder="Preenchido automaticamente"
                       value={novaColeta.gerador}
                       onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})}
-                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                      Inscrição Estadual (Sintegra)
-                    </label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Inscrição Estadual (Sintegra)
+                      </label>
+                      <a 
+                        href="https://www.sintegra.es.gov.br/" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs text-emerald-400 hover:underline font-semibold flex items-center gap-1"
+                      >
+                        Sintegra ES ↗
+                      </a>
+                    </div>
                     <input 
                       type="text" 
                       placeholder="Automático para CNPJ / Isento para CPF"
                       value={novaColeta.inscricao_estadual}
                       onChange={e => setNovaColeta({...novaColeta, inscricao_estadual: e.target.value})}
-                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none"
+                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white font-mono focus:border-emerald-500 focus:outline-none transition"
                     />
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                      <span>🛡️</span> Compliance Ambiental (Licença de Operação - LO)
+                    </label>
+                    <span className="text-xs text-slate-300 font-mono font-bold block">{novaColeta.licenca_operacao || 'Em checagem...'}</span>
+                    <span className="text-[11px] text-slate-500">Validação prévia no banco de dados ambiental do estado.</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${novaColeta.lo_valida ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+                      {novaColeta.lo_valida ? '✓ LO Válida / Ativa' : '❌ LO Inexistente/Suspensa'}
+                    </span>
                   </div>
                 </div>
 
@@ -1434,11 +1366,12 @@ export default function App() {
                       Endereço Completo de Coleta
                     </label>
                     <input 
-                      type="text" required
+                      type="text" 
+                      required
                       placeholder="Rua, Número, Bairro"
                       value={novaColeta.endereco}
                       onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})}
-                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                      className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -1448,7 +1381,7 @@ export default function App() {
                         type="text" 
                         value={novaColeta.cidade}
                         onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})}
-                        className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none"
+                        className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-emerald-500 focus:outline-none transition"
                       />
                     </div>
                     <div>
@@ -1457,43 +1390,222 @@ export default function App() {
                         type="text" 
                         value={novaColeta.estado}
                         onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})}
-                        className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white uppercase focus:border-emerald-500 focus:outline-none"
+                        className="w-full bg-slate-950/60 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white uppercase focus:border-emerald-500 focus:outline-none transition"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* DRE OPERACIONAL EXIBIDA EM TEMPO REAL */}
+                <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">🚢</span>
+                    <div>
+                      <label htmlFor="checkBalsa" className="text-xs font-bold text-slate-200 cursor-pointer block">
+                        Acesso requer travessia por Balsa ou Transporte Fluvial?
+                      </label>
+                      <span className="text-[11px] text-slate-400">Ajusta o frete considerando tarifação de eixos/PBT e regulação HAZMAT na embarcação.</span>
+                    </div>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    id="checkBalsa"
+                    checked={novaColeta.requer_balsa}
+                    onChange={e => setNovaColeta({...novaColeta, requer_balsa: e.target.checked})}
+                    className="w-5 h-5 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer"
+                  />
+                </div>
+
+                <div className="bg-slate-950/80 p-5 rounded-2xl border border-cyan-500/30 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                    <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>📄</span> Roteamento MTR & Transbordo (Base Intermediária)
+                    </span>
+                    <span className="text-xs font-mono font-bold text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/30">
+                      MTR Origem: {getSistemaMtrOrigem(novaColeta.estado).nome}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div>
+                      <label htmlFor="checkTransbordo" className="text-xs font-bold text-slate-200 cursor-pointer block">
+                        Operação com Armazenamento Temporário em Base Licenciada?
+                      </label>
+                      <span className="text-[11px] text-slate-400">Para empresas coletoras que estocam o OLUC em entreposto antes do envio à refinaria.</span>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      id="checkTransbordo"
+                      checked={novaColeta.tem_transbordo}
+                      onChange={e => setNovaColeta({...novaColeta, tem_transbordo: e.target.checked})}
+                      className="w-5 h-5 rounded border-slate-800 text-cyan-500 focus:ring-cyan-500 bg-slate-900 cursor-pointer"
+                    />
+                  </div>
+
+                  {novaColeta.tem_transbordo && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                          UF da Base de Transbordo (Armazenamento)
+                        </label>
+                        <select 
+                          value={novaColeta.estado_base_transbordo}
+                          onChange={e => setNovaColeta({...novaColeta, estado_base_transbordo: e.target.value})}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
+                        >
+                          <option value="ES">Espírito Santo (ES) - Base ({getSistemaMtrOrigem('ES').nome})</option>
+                          <option value="RJ">Rio de Janeiro (RJ) - Base RJ ({getSistemaMtrOrigem('RJ').nome})</option>
+                          <option value="MG">Minas Gerais (MG) - Base MG ({getSistemaMtrOrigem('MG').nome})</option>
+                          <option value="SP">São Paulo (SP) - Base SP ({getSistemaMtrOrigem('SP').nome})</option>
+                          <option value="PR">Paraná (PR) - Base PR ({getSistemaMtrOrigem('PR').nome})</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                          UF do Rerrefinador (Usina Mais Próxima)
+                        </label>
+                        <select 
+                          value={novaColeta.estado_destinacao_final}
+                          onChange={e => setNovaColeta({...novaColeta, estado_destinacao_final: e.target.value})}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:border-cyan-500 focus:outline-none font-mono"
+                        >
+                          <option value="RJ">Rio de Janeiro (RJ) - Usina Duque de Caxias / RJ</option>
+                          <option value="SP">São Paulo (SP) - Usina Polo Paulínia / SP</option>
+                          <option value="MG">Minas Gerais (MG) - Usina Betim / MG</option>
+                          <option value="PR">Paraná (PR) - Usina Araucária / PR</option>
+                          <option value="RS">Rio Grande do Sul (RS) - Usina Esteio / RS</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-400 font-bold">Fluxo de Sistemas Conectados:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {cadeiaMtrAtual.join('  ➔  ')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                      <span>🛢️</span> Volume & Valor da Proposta
+                    </span>
+                    <span className="text-xs text-amber-300 font-mono font-bold">
+                      Teto Praticável na Rota: R$ {breakdownAtual.tetoSugerido} / L
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Volume Estimado (Litros)
+                      </label>
+                      <input 
+                        type="number" 
+                        required
+                        placeholder="Ex: 1000"
+                        value={novaColeta.volume_estimado}
+                        onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold focus:border-emerald-500 focus:outline-none transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 mb-1">
+                        Valor Esperado por Litro (R$/L)
+                      </label>
+                      <input 
+                        type="number" 
+                        step="0.05"
+                        disabled={novaColeta.cotacao_aberta}
+                        placeholder={novaColeta.cotacao_aberta ? "Cotação Aberta ativada" : `Máx: ${breakdownAtual.tetoSugerido}`}
+                        value={novaColeta.valor_esperado}
+                        onChange={e => setNovaColeta({...novaColeta, valor_esperado: e.target.value})}
+                        className={`w-full border rounded-xl px-4 py-3 text-sm font-mono font-bold transition focus:outline-none ${novaColeta.cotacao_aberta ? 'bg-slate-900/40 border-slate-800 text-slate-500' : 'bg-slate-900 border-slate-800 text-amber-400 focus:border-emerald-500'}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
+                    <input 
+                      type="checkbox" 
+                      id="checkCotacao"
+                      checked={novaColeta.cotacao_aberta}
+                      onChange={e => setNovaColeta({...novaColeta, cotacao_aberta: e.target.checked, valor_esperado: e.target.checked ? '' : novaColeta.valor_esperado})}
+                      className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 bg-slate-900 cursor-pointer"
+                    />
+                    <label htmlFor="checkCotacao" className="text-xs text-slate-200 font-medium cursor-pointer">
+                      <strong>Cotação Aberta (Recomendado):</strong> Receber lances concorrenciais dos coletores credenciados para esta rota.
+                    </label>
+                  </div>
+                </div>
+
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <h4 className="text-xs font-black text-white uppercase tracking-wider">
-                      DRE Operacional por Litro ({novaColeta.estado || 'ES'})
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📊</span>
+                      <h4 className="text-xs font-black text-white uppercase tracking-wider">
+                        DRE Operacional por Litro ({novaColeta.estado || 'ES'})
+                      </h4>
+                    </div>
                     <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20">
                       Faixa: {breakdownAtual.faixaTexto}
                     </span>
                   </div>
 
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Composição calculada reativamente a partir da **Matriz de Custos Dinâmicos**:
+                  </p>
+
                   <div className="space-y-2.5 font-mono text-xs">
+                    
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-                      <span className="text-slate-300">Preço Bruto de Balcão (Usina Rerrefino)</span>
+                      <span className="text-slate-300 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        Preço Bruto de Balcão (Usina Rerrefino)
+                      </span>
                       <span className="text-emerald-400 font-bold">+ R$ {breakdownAtual.precoBrutoRerrefino} / L</span>
                     </div>
 
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-                      <span className="text-slate-400">Mão de Obra Motorista + Periculosidade 30% + CCT ({novaColeta.estado || 'ES'})</span>
+                      <span className="text-slate-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                        Mão de Obra Motorista + Periculosidade 30% + CCT ({novaColeta.estado || 'ES'})
+                      </span>
                       <span className="text-rose-400 font-bold">- R$ {breakdownAtual.custoMaoDeObraMotorista} / L</span>
                     </div>
 
                     <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
-                      <span className="text-slate-400">Coleta Capilar Local (Diesel S10, Pneus e Manutenção)</span>
+                      <span className="text-slate-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                        Coleta Capilar Local (Diesel S10, Pneus e Manutenção)
+                      </span>
                       <span className="text-amber-400 font-bold">- R$ {breakdownAtual.custoDieselPneusMaint} / L</span>
                     </div>
 
                     {novaColeta.tem_transbordo && (
                       <div className="flex justify-between items-center bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30">
-                        <span className="text-cyan-300 font-bold">Frete Transbordo: {breakdownAtual.nomeUsinaProxima}</span>
+                        <span className="text-cyan-300 flex items-center gap-2 font-bold">
+                          <span>🚚</span> Frete Transbordo: {breakdownAtual.nomeUsinaProxima}
+                        </span>
                         <span className="text-cyan-300 font-bold">- R$ {breakdownAtual.custoFreteTransbordo} / L</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-400 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+                        Despesas Administrativas, Licenças & Telemetria
+                      </span>
+                      <span className="text-purple-400 font-bold">- R$ {breakdownAtual.custosAdministrativos} / L</span>
+                    </div>
+
+                    {novaColeta.requer_balsa && (
+                      <div className="flex justify-between items-center bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/30">
+                        <span className="text-amber-300 flex items-center gap-2 font-bold">
+                          <span>🚢</span> Travessia Fluvial / Tarifação Balsa HAZMAT
+                        </span>
+                        <span className="text-amber-300 font-bold">- R$ {breakdownAtual.custoBalsa} / L</span>
                       </div>
                     )}
 
@@ -1502,12 +1614,16 @@ export default function App() {
                       <span className="text-emerald-300 font-black text-base">R$ {breakdownAtual.tetoSugerido} / L</span>
                     </div>
                   </div>
+
+                  <p className="text-[10px] text-slate-500 italic border-t border-slate-800/80 pt-3 leading-normal">
+                    ⚠️ <strong>Observação:</strong> O pagamento final fica condicionado à amostragem de bancada (teor de água e impurezas BS&W) realizada na sucção do caminhão-tanque.
+                  </p>
                 </div>
 
                 <button 
                   type="submit" 
                   disabled={loading || buscandoDoc}
-                  className="w-full bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 font-black py-4 rounded-2xl transition shadow-xl text-xs uppercase tracking-wider"
+                  className="w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 font-black py-4 rounded-2xl transition-all shadow-xl shadow-emerald-500/20 transform hover:scale-[1.01] active:scale-[0.99] mt-6 flex items-center justify-center gap-2"
                 >
                   {loading ? 'A registrar no Supabase...' : '✓ Confirmar e Enviar para Cotação'}
                 </button>
@@ -1519,47 +1635,48 @@ export default function App() {
         {/* ABA: TABELA DE COLETAS REGISTRADAS */}
         {activeTab === 'coletas' && (
           <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-8 shadow-2xl animate-fadeIn">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-800/80">
               <div>
                 <h2 className="text-2xl font-black text-white tracking-tight">Ordens de Coleta, MTRs & CDF</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento de volume, MTRs estaduais/SINIR e navegação GPS</p>
+                <p className="text-xs text-slate-400 mt-0.5">Acompanhamento de volume, MTRs estaduais/SINIR, navegação e emissão de CDF</p>
               </div>
               <button 
                 onClick={buscarColetas}
-                className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition"
+                className="bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition flex items-center gap-2"
               >
-                ↻ Atualizar Dados
+                <span>↻</span> Atualizar Dados
               </button>
             </div>
 
             {loading ? (
               <div className="py-16 text-center text-slate-400 text-sm font-medium animate-pulse">
-                Carregando registros do banco de dados...
+                A carregar registos do banco de dados...
               </div>
             ) : coletas.length === 0 ? (
-              <div className="py-16 text-center text-slate-500 text-sm border-2 border-dashed border-slate-800 rounded-2xl">
-                Nenhuma solicitação encontrada no Supabase.
+              <div className="py-16 text-center text-slate-500 text-sm border-2 border-dashed border-slate-800/80 rounded-2xl">
+                Nenhuma solicitação encontrada no Supabase. Crie a primeira na aba "Nova Coleta".
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm text-slate-300">
-                  <thead className="bg-slate-950 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
+                  <thead className="bg-slate-950/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                     <tr>
-                      <th className="p-4">Gerador / Documento</th>
+                      <th className="p-4 rounded-l-xl">Gerador / Documento</th>
                       <th className="p-4">Volume</th>
                       <th className="p-4">Proposta (R$/L)</th>
                       <th className="p-4">Localização</th>
                       <th className="p-4 text-center">Navegação GPS</th>
                       <th className="p-4">Cadeia MTR</th>
-                      <th className="p-4 text-center">Certificado (CDF)</th>
+                      <th className="p-4 rounded-r-xl text-center">Certificado (CDF)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {coletas.map((item, idx) => (
-                      <tr key={item.id || idx} className="hover:bg-slate-800/40 transition">
+                      <tr key={item.id || idx} className="hover:bg-slate-800/40 transition-colors">
                         <td className="p-4 font-bold text-white">
                           {item.gerador_nome || 'Gerador sem nome'}
                           <span className="block text-xs font-mono font-normal text-slate-400 mt-0.5">{item.cnpj}</span>
+                          <span className="block text-[11px] font-mono text-indigo-300 mt-0.5">IE: {item.inscricao_estadual || 'Isento'}</span>
                         </td>
                         <td className="p-4 font-mono text-emerald-400 font-extrabold text-base">
                           {item.volume_estimado_litros} <span className="text-xs text-emerald-500">L</span>
@@ -1575,15 +1692,17 @@ export default function App() {
                           <div className="flex items-center justify-center gap-2">
                             <a 
                               href={getGoogleMapsUrl(item.endereco, item.cidade, item.estado)} 
-                              target="_blank" rel="noopener noreferrer"
-                              className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs font-bold"
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 font-bold transition shadow-sm"
                             >
                               🗺️ Google
                             </a>
                             <a 
                               href={getAppleMapsUrl(item.endereco, item.cidade, item.estado)} 
-                              target="_blank" rel="noopener noreferrer"
-                              className="bg-slate-800 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold"
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 font-bold transition shadow-sm"
                             >
                               📍 Apple
                             </a>
@@ -1595,9 +1714,9 @@ export default function App() {
                         <td className="p-4 text-center">
                           <button
                             onClick={() => setModalCdf(item)}
-                            className="bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-black shadow-md"
+                            className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 px-3 py-1.5 rounded-xl text-xs font-black shadow-md transition"
                           >
-                            📄 CDF
+                            📄 Visualizar CDF
                           </button>
                         </td>
                       </tr>
@@ -1615,7 +1734,13 @@ export default function App() {
       {modalCdf && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 md:p-8 space-y-6 shadow-2xl relative">
-            <button onClick={() => setModalCdf(null)} className="absolute top-6 right-6 text-slate-400 hover:text-white font-bold text-lg">✕</button>
+            <button
+              onClick={() => setModalCdf(null)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-white font-bold text-lg"
+            >
+              ✕
+            </button>
+
             <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
               <LubeLoopLogo className="w-10 h-10" />
               <div>
@@ -1623,6 +1748,7 @@ export default function App() {
                 <p className="text-xs text-slate-400">Emissão oficial integrada aos órgãos ambiental e de logística de OLUC</p>
               </div>
             </div>
+
             <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 text-xs font-mono">
               <div className="flex justify-between border-b border-slate-800 pb-2">
                 <span className="text-slate-400">Nº do Certificado:</span>
@@ -1633,13 +1759,31 @@ export default function App() {
                 <span className="text-white font-bold">{modalCdf.gerador_nome}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-slate-400">CNPJ / CPF:</span>
+                <span className="text-slate-200">{modalCdf.cnpj}</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-400">Volume Rerrefinado:</span>
                 <span className="text-emerald-400 font-bold">{modalCdf.volume_estimado_litros} Litros</span>
               </div>
+              <div className="flex justify-between border-t border-slate-800 pt-2">
+                <span className="text-slate-400">Cadeia de Custódia MTR:</span>
+                <span className="text-cyan-300 font-bold">{modalCdf.mtr_numero || 'MTR-ES / IEMA → SIGOR'}</span>
+              </div>
             </div>
+
             <div className="flex items-center justify-between bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/30">
-              <span className="text-xs font-bold text-white">Autenticação digital por QR Code (IEMA/SINIR)</span>
-              <button onClick={() => { alert('Iniciando PDF...'); setModalCdf(null); }} className="bg-emerald-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center text-xl">📱</div>
+                <div>
+                  <span className="text-xs font-bold text-white block">Autenticação digital por QR Code</span>
+                  <span className="text-[11px] text-emerald-400">Certificado assinado e homologado no IEMA/SINIR</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => { alert('Iniciando impressão do documento em formato PDF oficial...'); setModalCdf(null); }}
+                className="bg-emerald-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs hover:bg-emerald-300 transition"
+              >
                 🖨️ Baixar PDF
               </button>
             </div>
