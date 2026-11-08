@@ -50,6 +50,11 @@ export default function App() {
   const [filtroTipoDashboard, setFiltroTipoDashboard] = useState('todos')
   const [salvandoCustos, setSalvandoCustos] = useState(false)
 
+  // Controle de Senha para Matriz de Custos
+  const [senhaMatriz, setSenhaMatriz] = useState('')
+  const [matrizLiberada, setMatrizLiberada] = useState(false)
+  const SENHA_ADMIN = 'biopetro2026'
+
   // SIMULADOR DE CENÁRIOS (STRESS TEST)
   const [simuladorCenario, setSimuladorCenario] = useState({
     aumentoDieselPct: 0,
@@ -135,7 +140,7 @@ export default function App() {
         frete_transbordo: parametrosCustos.custoFreteTransbordoMatriz,
         updated_at: new Date()
       })
-      alert("Matriz de Custos sincronizada com sucesso!")
+      alert("Matriz de Custos sincronizada com sucesso no Supabase!")
     } finally {
       setSalvandoCustos(false)
     }
@@ -187,7 +192,7 @@ export default function App() {
     return sistemas
   }
 
-  // CÁLCULO DRE OCULTO (APLICADO APENAS NOS BASTIDORES)
+  // CÁLCULO DRE OCULTO (BASTIDORES)
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -323,7 +328,7 @@ export default function App() {
     setLoading(true)
     try {
       await supabase.from('agentes_anp').insert([novaUnidade])
-      alert("Agente cadastrado com sucesso!")
+      alert("Agente regulado cadastrado com sucesso!")
       buscarUnidades()
     } finally { setLoading(false) }
   }
@@ -387,7 +392,7 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
         
-        {/* DASHBOARD */}
+        {/* DASHBOARD COM KPIS EM DESTAQUE NO TOPO */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -448,7 +453,7 @@ export default function App() {
           </div>
         )}
 
-        {/* NOVA SOLICITAÇÃO DE COLETA (SEM EXIBIÇÃO DA DRE) */}
+        {/* NOVA SOLICITAÇÃO (DRE OCULTA) */}
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto">
             <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl space-y-6">
@@ -482,7 +487,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* A DRE FOI COMPLETAMENTE OCULTADA DA TELA, MAS O TETO DE CÁLCULO CONTINUA ATIVO NOS BASTIDORES */}
                 <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
                   <span>Validação Econômica de Rota Aplicada nos Bastidores</span>
                   <span className="text-emerald-400 font-mono font-bold">Teto Automático Ativo</span>
@@ -496,7 +500,54 @@ export default function App() {
           </div>
         )}
 
-        {/* DEMAIS ABAS (coletas, unidades, config_custos, config_mtr) */}
+        {/* MATRIZ DE CUSTOS PROTEGIDA POR SENHA */}
+        {activeTab === 'config_custos' && (
+          <div className="max-w-5xl mx-auto space-y-8">
+            {!matrizLiberada ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md mx-auto text-center space-y-6 shadow-2xl">
+                <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-2xl mx-auto flex items-center justify-center text-xl font-bold border border-amber-500/30">
+                  🔒
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white">Área Restrita — Matriz de Custos</h3>
+                  <p className="text-xs text-slate-400 mt-1">Digite a senha de administrador para acessar os parâmetros.</p>
+                </div>
+                <form onSubmit={(e) => {
+                  e.preventDefault()
+                  if (senhaMatriz === SENHA_ADMIN) setMatrizLiberada(true)
+                  else { alert('Senha incorreta!'); setSenhaMatriz('') }
+                }} className="space-y-4">
+                  <input 
+                    type="password" placeholder="Senha..." value={senhaMatriz} onChange={e => setSenhaMatriz(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white text-center font-mono focus:border-amber-500"
+                    autoFocus
+                  />
+                  <button type="submit" className="w-full bg-amber-500 text-slate-950 font-black py-3 rounded-xl text-xs uppercase">
+                    Desbloquear Acesso
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-2xl">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+                  <h2 className="text-2xl font-black text-white">💲 Matriz de Custos Global (Supabase)</h2>
+                  <button onClick={salvarCustosSupabase} className="bg-emerald-400 text-slate-950 font-black px-5 py-3 rounded-xl text-xs">
+                    Salvar Custos
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <label className="block text-xs font-bold text-slate-400 mb-1">Preço Balcão Usina</label>
+                    <input type="number" step="0.01" value={parametrosCustos.precoBrutoBalcaoUsina} onChange={e => setParametrosCustos({ ...parametrosCustos, precoBrutoBalcaoUsina: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-emerald-400 font-bold text-xs" />
+                  </div>
+                </div>
+                <button onClick={() => setMatrizLiberada(false)} className="text-xs text-slate-400 underline">Bloquear Novamente</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* OUTRAS ABAS */}
         {activeTab === 'coletas' && (
           <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 text-xs font-mono">
             <h2 className="text-lg font-bold text-white mb-4">Ordens de Coleta Registradas ({coletas.length})</h2>
@@ -506,19 +557,6 @@ export default function App() {
                 <span className="text-emerald-400 font-bold">{c.volume_estimado_litros} L</span>
               </div>
             ))}
-          </div>
-        )}
-
-        {activeTab === 'config_custos' && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-            <h2 className="text-xl font-black text-white">💲 Matriz de Custos</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <label className="block text-xs font-bold text-slate-400 mb-1">Preço Balcão Usina</label>
-                <input type="number" step="0.01" value={parametrosCustos.precoBrutoBalcaoUsina} onChange={e => setParametrosCustos({ ...parametrosCustos, precoBrutoBalcaoUsina: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-emerald-400 font-bold text-xs" />
-              </div>
-            </div>
-            <button onClick={salvarCustosSupabase} className="bg-emerald-400 text-slate-950 font-black px-4 py-2 rounded-xl text-xs">Salvar Custos</button>
           </div>
         )}
 
