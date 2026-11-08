@@ -12,11 +12,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [coletas, setColetas] = useState([])
   const [loading, setLoading] = useState(false)
-  const [buscandoCnpj, setBuscandoCnpj] = useState(false)
+  const [buscandoDocumento, setBuscandoDocumento] = useState(false)
 
   const [novaColeta, setNovaColeta] = useState({
     gerador: '',
-    cnpj: '',
+    cnpj: '', // usado como campo único de CPF/CNPJ
     inscricao_estadual: '',
     volume_estimado: '',
     endereco: '',
@@ -49,19 +49,56 @@ export default function App() {
     }
   }
 
-  // Consulta inteligente de CNPJ, endereço e diferenciação de I.E. entre Matriz e Filial
-  const handleCnpjChange = async (e) => {
+  // Consulta inteligente: CPF no Supabase vs CNPJ na Receita/Sintegra
+  const handleDocumentoChange = async (e) => {
     const valorDigitado = e.target.value
     setNovaColeta(prev => ({ ...prev, cnpj: valorDigitado }))
 
-    const cnpjLimpo = valorDigitado.replace(/\D/g, '')
+    const docLimpo = valorDigitado.replace(/\D/g, '')
 
-    if (cnpjLimpo.length === 14) {
-      setBuscandoCnpj(true)
-      const ehFilial = !cnpjLimpo.substring(8, 12).includes('0001')
+    // 1. CPF (11 dígitos): Busca histórico de cliente no Supabase
+    if (docLimpo.length === 11) {
+      setBuscandoDocumento(true)
+      try {
+        if (supabase) {
+          const { data } = await supabase
+            .from('coletas')
+            .select('*')
+            .eq('cnpj', valorDigitado)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (data) {
+            setNovaColeta(prev => ({
+              ...prev,
+              gerador: data.gerador_nome || prev.gerador,
+              inscricao_estadual: data.inscricao_estadual || 'Isento (Pessoa Física)',
+              endereco: data.endereco || prev.endereco,
+              cidade: data.cidade || prev.cidade,
+              estado: data.estado || prev.estado
+            }))
+          } else {
+            setNovaColeta(prev => ({
+              ...prev,
+              inscricao_estadual: 'Isento (Pessoa Física)'
+            }))
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao buscar CPF no banco:", err)
+      } finally {
+        setBuscandoDocumento(false)
+      }
+    }
+
+    // 2. CNPJ (14 dígitos): Consulta Receita Federal e Sintegra por UF
+    if (docLimpo.length === 14) {
+      setBuscandoDocumento(true)
+      const ehFilial = !docLimpo.substring(8, 12).includes('0001')
 
       try {
-        const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpjLimpo}`)
+        const response = await fetch(`https://publica.cnpj.ws/cnpj/${docLimpo}`)
         
         if (response.ok) {
           const data = await response.json()
@@ -70,51 +107,32 @@ export default function App() {
           const ieArray = est.inscricoes_estaduais || []
 
           let ieEncontrada = ''
-
-          // Se for Filial, verifica se a API possui registo específico para o estabelecimento
           if (ieArray.length > 0) {
             const ieDoEstado = ieArray.filter(item => item.estado?.sigla === ufDoEstado && item.ativo !== false)
-            
             if (ehFilial && ieDoEstado.length > 1) {
-              // Se a API retornar a I.E. da Matriz e da Filial juntas, seleciona a segunda ou solicita digitação
               ieEncontrada = ieDoEstado[ieDoEstado.length - 1].inscricao_estadual || ''
             } else if (ieDoEstado.length === 1) {
-              // Se for matriz ou filial com 1 IE cadastrada
               ieEncontrada = ieDoEstado[0].inscricao_estadual || ''
             }
           }
 
-          // Se for filial e a API retornou o dado legado da Matriz, solicita a validação da Filial
           if (ehFilial && (!ieEncontrada || ieEncontrada === '081058292')) {
-            ieEncontrada = '' // Deixa em branco para preenchimento manual da I.E. da Filial
+            ieEncontrada = ''
           }
 
           setNovaColeta(prev => ({
             ...prev,
             gerador: data.razao_social || est.nome_fantasia || prev.gerador,
-            inscricao_estadual: ieEncontrada,
+            inscricao_estadual: ieEncontrada || 'Isento / Não cadastrado',
             endereco: `${est.logradouro || ''}, ${est.numero || 'S/N'}${est.bairro ? ' - ' + est.bairro : ''}`,
             cidade: est.cidade?.nome || prev.cidade,
             estado: ufDoEstado || prev.estado
           }))
-        } else {
-          // Fallback via BrasilAPI
-          const resFallback = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`)
-          if (resFallback.ok) {
-            const dataFb = await resFallback.json()
-            setNovaColeta(prev => ({
-              ...prev,
-              gerador: dataFb.razao_social || dataFb.nome_fantasia || prev.gerador,
-              endereco: `${dataFb.logradouro || ''}, ${dataFb.numero || 'S/N'}${dataFb.bairro ? ' - ' + dataFb.bairro : ''}`,
-              cidade: dataFb.municipio || prev.cidade,
-              estado: dataFb.uf || prev.estado
-            }))
-          }
         }
       } catch (err) {
         console.error("Erro na busca do CNPJ:", err)
       } finally {
-        setBuscandoCnpj(false)
+        setBuscandoDocumento(false)
       }
     }
   }
@@ -191,7 +209,7 @@ export default function App() {
 
         <div className="flex items-center gap-2 text-xs">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
-          <span className="text-slate-300 font-mono">Filtro Matriz / Filial: Ativo</span>
+          <span className="text-slate-300 font-mono">Busca CPF & CNPJ: Ativa</span>
         </div>
       </header>
 
@@ -219,8 +237,8 @@ export default function App() {
                 </h3>
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Validação de I.E. Filiais</p>
-                <h3 className="text-2xl font-bold text-indigo-400 mt-1">SEFAZ / Sintegra</h3>
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Busca de Clientes</p>
+                <h3 className="text-2xl font-bold text-indigo-400 mt-1">CPF & CNPJ</h3>
               </div>
             </div>
 
@@ -228,7 +246,7 @@ export default function App() {
               <div>
                 <h2 className="text-2xl font-bold text-white mb-2">Automação de Rota & SINIR para OLUC</h2>
                 <p className="text-slate-300 max-w-xl text-sm leading-relaxed">
-                  Validação inteligente de CNPJ da Matriz e Filiais com verificação de Inscrição Estadual individualizada por unidade operacional.
+                  Preenchimento automático por consulta à Receita Federal / Sintegra para empresas (CNPJ) e histórico interno no Supabase para pessoas físicas (CPF).
                 </p>
               </div>
               <button 
@@ -244,20 +262,20 @@ export default function App() {
         {activeTab === 'solicitar' && (
           <div className="max-w-2xl mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl">
             <h2 className="text-xl font-bold text-white mb-1">Nova Solicitação de Coleta de OLUC</h2>
-            <p className="text-xs text-slate-400 mb-6">Digite o CNPJ (Matriz ou Filial) para carregar os dados cadastrais e fiscais.</p>
+            <p className="text-xs text-slate-400 mb-6">Digite o CNPJ (14 dígitos) para buscar na Receita/Sintegra ou CPF (11 dígitos) para buscar no histórico do Supabase.</p>
 
             <form onSubmit={handleCriarSolicitacao} className="space-y-4">
               <div>
                 <label className="block text-xs text-slate-300 mb-1 font-semibold flex items-center justify-between">
-                  <span>CNPJ do Gerador</span>
-                  {buscandoCnpj && <span className="text-emerald-400 animate-pulse font-normal">🔍 Consultando dados da unidade...</span>}
+                  <span>CPF ou CNPJ do Gerador</span>
+                  {buscandoDocumento && <span className="text-emerald-400 animate-pulse font-normal">🔍 Consultando dados...</span>}
                 </label>
                 <input 
                   type="text" 
                   required
-                  placeholder="00.000.000/0001-00"
+                  placeholder="Digite os 11 números do CPF ou 14 do CNPJ"
                   value={novaColeta.cnpj}
-                  onChange={handleCnpjChange}
+                  onChange={handleDocumentoChange}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
@@ -283,12 +301,12 @@ export default function App() {
                       rel="noopener noreferrer"
                       className="text-xs text-emerald-400 hover:underline font-normal"
                     >
-                      Consultar Sintegra ES ↗
+                      Sintegra ES ↗
                     </a>
                   </label>
                   <input 
                     type="text" 
-                    placeholder={novaColeta.cnpj.includes('0003') ? "Insira a I.E. da Filial (Serra)" : "Preenchido automaticamente"}
+                    placeholder="Automático para CNPJ / Isento para CPF"
                     value={novaColeta.inscricao_estadual}
                     onChange={e => setNovaColeta({...novaColeta, inscricao_estadual: e.target.value})}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none"
@@ -344,7 +362,7 @@ export default function App() {
 
               <button 
                 type="submit" 
-                disabled={loading || buscandoCnpj}
+                disabled={loading || buscandoDocumento}
                 className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition-all shadow-lg shadow-emerald-500/20 mt-4"
               >
                 {loading ? 'A registar...' : 'Confirmar Solicitação'}
@@ -394,32 +412,4 @@ export default function App() {
                           {item.gerador_nome || 'Gerador sem nome'}
                           <span className="block text-xs font-normal text-slate-400">{item.cnpj}</span>
                         </td>
-                        <td className="p-3 text-xs font-mono text-indigo-300">
-                          {item.inscricao_estadual || 'Isento / Não informada'}
-                        </td>
-                        <td className="p-3 font-mono text-emerald-400 font-semibold">
-                          {item.volume_estimado_litros} L
-                        </td>
-                        <td className="p-3 text-xs text-slate-300">
-                          {item.cidade}/{item.estado}
-                        </td>
-                        <td className="p-3">
-                          <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            {item.status || 'Pendente'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-xs font-mono text-slate-400">
-                          {item.mtr_numero || 'Pendente de emissão'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-    </div>
-  )
-}
+                        <td className="p-3 text-xs font-
