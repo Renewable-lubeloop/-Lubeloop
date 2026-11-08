@@ -39,7 +39,8 @@ const supabase = (supabaseUrl && supabaseAnonKey)
   : null
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard')
+  // A aba padrão agora é 'solicitar' para que a captação de receita fique em primeiro plano
+  const [activeTab, setActiveTab] = useState('solicitar')
   const [coletas, setColetas] = useState([])
   const [unidades, setUnidades] = useState([])
   const [buscaAnp, setBuscaAnp] = useState('')
@@ -56,13 +57,11 @@ export default function App() {
   const [matrizLiberada, setMatrizLiberada] = useState(false)
   const SENHA_ADMIN = 'Zaca1304'
 
-  // SIMULADOR DE CENÁRIOS (STRESS TEST)
   const [simuladorCenario, setSimuladorCenario] = useState({
     aumentoDieselPct: 0,
     aumentoCctPct: 0
   })
 
-  // MATRIZ DINÂMICA DE CUSTOS
   const [parametrosCustos, setParametrosCustos] = useState({
     precoBrutoBalcaoUsina: 2.40,
     custoCapilarDieselPneusBase: 0.30,
@@ -101,22 +100,16 @@ export default function App() {
     cidade: 'Vitória', estado: 'ES', capacidade_estocagem_litros: '50000', contato_nome: '', contato_telefone: ''
   })
 
-  // BASE ANP PADRÃO SEPARADA POR REGIÕES (COLETORES, TRANSBORDO E USINAS DE RERREFINO AUTORIZADAS)
   const agentesAnpPadrao = [
-    // Sudeste
     { id: 1, tipo: 'transbordo', regiao: 'Sudeste', razao_social: 'Base de Apoio Logístico e Armazenamento ES', nome_fantasia: 'Entreposto Serra / ES', cnpj: '00.123.456/0001-89', autorizacao_anp: 'ANP-SIMP-ES-0412', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-IEMA 1042/2025', orgao_ambiental: 'IEMA', cidade: 'Serra', estado: 'ES', capacidade_litros: 150000 },
     { id: 2, tipo: 'transbordo', regiao: 'Sudeste', razao_social: 'Logística Ambiental e Coleta de Óleos RJ', nome_fantasia: 'Base Duque de Caxias', cnpj: '22.333.444/0001-55', autorizacao_anp: 'ANP-SIMP-RJ-0201', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-INEA 5011/2025', orgao_ambiental: 'INEA', cidade: 'Duque de Caxias', estado: 'RJ', capacidade_litros: 300000 },
     { id: 3, tipo: 'transbordo', regiao: 'Sudeste', razao_social: 'Minas Coleta e Transbordo de Lubrificantes', nome_fantasia: 'Base Betim / MG', cnpj: '33.444.555/0001-66', autorizacao_anp: 'ANP-SIMP-MG-0118', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-FEAM 3302/2024', orgao_ambiental: 'FEAM', cidade: 'Betim', estado: 'MG', capacidade_litros: 200000 },
     { id: 4, tipo: 'transbordo', regiao: 'Sudeste', razao_social: 'Coleta & Transbordo Paulínia Logística', nome_fantasia: 'Base Entreposto Paulínia', cnpj: '44.555.666/0001-77', autorizacao_anp: 'ANP-SIMP-SP-0950', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-CETESB 7712/2025', orgao_ambiental: 'CETESB', cidade: 'Paulínia', estado: 'SP', capacidade_litros: 500000 },
     { id: 5, tipo: 'rerrefino', regiao: 'Sudeste', razao_social: 'Usina Paulista de Rerrefino de Lubrificantes SA', nome_fantasia: 'Polo Rerrefino Paulínia', cnpj: '11.987.654/0001-10', autorizacao_anp: 'ANP-SIMP-SP-0089', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-CETESB 8892/2024', orgao_ambiental: 'CETESB', cidade: 'Paulínia', estado: 'SP', capacidade_litros: 2500000 },
     { id: 6, tipo: 'rerrefino', regiao: 'Sudeste', razao_social: 'Rerrefinaria Fluminense de Óleos Usados', nome_fantasia: 'Usina Rerrefino Duque de Caxias', cnpj: '55.666.777/0001-88', autorizacao_anp: 'ANP-SIMP-RJ-0034', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-INEA 9910/2025', orgao_ambiental: 'INEA', cidade: 'Duque de Caxias', estado: 'RJ', capacidade_litros: 1800000 },
-    
-    // Sul
     { id: 7, tipo: 'transbordo', regiao: 'Sul', razao_social: 'Paraná Transbordo e Logística de Óleos', nome_fantasia: 'Entreposto Araucária / PR', cnpj: '88.999.000/0001-11', autorizacao_anp: 'ANP-SIMP-PR-0322', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-IAT 4410/2025', orgao_ambiental: 'IAT', cidade: 'Araucária', estado: 'PR', capacidade_litros: 180000 },
     { id: 8, tipo: 'rerrefino', regiao: 'Sul', razao_social: 'Usina Sulriograndense de Rerrefino Ltda', nome_fantasia: 'Rerrefinaria Esteio / RS', cnpj: '66.777.888/0001-99', autorizacao_anp: 'ANP-SIMP-RS-0012', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-FEPAM 4012/2024', orgao_ambiental: 'FEPAM', cidade: 'Esteio', estado: 'RS', capacidade_litros: 1200000 },
     { id: 9, tipo: 'rerrefino', regiao: 'Sul', razao_social: 'Paraná Rerrefino e Tecnologia Ambiental', nome_fantasia: 'Usina Araucária / PR', cnpj: '77.888.999/0001-00', autorizacao_anp: 'ANP-SIMP-PR-0056', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-IAT 6620/2025', orgao_ambiental: 'IAT', cidade: 'Araucária', estado: 'PR', capacidade_litros: 1600000 },
-
-    // Nordeste
     { id: 10, tipo: 'transbordo', regiao: 'Nordeste', razao_social: 'Bahia Óleos Coleta e Armazenamento', nome_fantasia: 'Base Camaçari / BA', cnpj: '99.000.111/0001-22', autorizacao_anp: 'ANP-SIMP-BA-0199', situacao_anp: 'AUTORIZADO', licenca_operacao: 'LO-INEMA 3021/2025', orgao_ambiental: 'INEMA', cidade: 'Camaçari', estado: 'BA', capacidade_litros: 220000 }
   ]
 
@@ -412,7 +405,7 @@ export default function App() {
       
       <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-6 py-4">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('dashboard')}>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('solicitar')}>
             <LubeLoopLogo className="w-11 h-11" />
             <div>
               <h1 className="text-2xl font-black text-white">Lube<span className="text-emerald-400">Loop</span></h1>
@@ -420,9 +413,10 @@ export default function App() {
             </div>
           </div>
 
+          {/* NAVEGAÇÃO SUPERIOR COM NOVA COLETA DESTACADA */}
           <nav className="flex items-center gap-1.5 bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800/80">
+            <button onClick={() => setActiveTab('solicitar')} className={`px-4 py-2 rounded-xl text-xs font-black transition ${activeTab === 'solicitar' ? 'bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 shadow-lg scale-105' : 'text-emerald-400 hover:text-white'}`}>⚡ Nova Coleta</button>
             <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'dashboard' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>📊 Painel ANP</button>
-            <button onClick={() => setActiveTab('solicitar')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'solicitar' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>⚡ Nova Coleta</button>
             <button onClick={() => setActiveTab('coletas')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'coletas' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>🚛 Ordens ({coletas.length})</button>
             <button onClick={() => setActiveTab('unidades')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'unidades' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>🏢 Cadastrar Agente</button>
             <button onClick={() => setActiveTab('config_custos')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'config_custos' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'}`}>💲 Matriz Custos</button>
@@ -433,9 +427,75 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
         
-        {/* DASHBOARD COM KPIS MAIORES E EM DESTAQUE NO TOPO */}
+        {/* ABA PRINCIPAL DE ENTRADA: NOVA SOLICITAÇÃO DE COLETA (EM DESTAQUE FRONTAL) */}
+        {activeTab === 'solicitar' && (
+          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+            
+            <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-emerald-500/40 rounded-3xl p-6 md:p-8 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+              <div>
+                <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full border border-emerald-500/30 uppercase">
+                  ⚡ Motor de Captação e Remuneração
+                </span>
+                <h2 className="text-3xl font-black text-white tracking-tight mt-3">
+                  Nova Solicitação de <span className="text-emerald-400">Coleta de OLUC</span>
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Cadastre a ordem de coleta para ativar o teto de cotação e iniciar a operação logística integrada aos órgãos reguladores.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl">
+              <form onSubmit={handleCriarSolicitacao} className="space-y-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">CPF ou CNPJ do Gerador</label>
+                  <input type="text" required value={novaColeta.cnpj} onChange={handleDocumentoChange} placeholder="Digite para buscar dados na Receita..." className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Razão Social / Nome do Gerador</label>
+                    <input type="text" required value={novaColeta.gerador} onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-400 uppercase mb-1">Volume Estimado (Litros)</label>
+                    <input type="number" required value={novaColeta.volume_estimado} onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})} placeholder="Ex: 1000" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Endereço Completo</label>
+                    <input type="text" required value={novaColeta.endereco} onChange={e => setNovaColeta({...novaColeta, endereco: e.target.value})} placeholder="Rua, Número, Bairro" className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cidade</label>
+                      <input type="text" value={novaColeta.cidade} onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-1">UF</label>
+                      <input type="text" value={novaColeta.estado} onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white uppercase" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+                  <span>Validação Econômica de Rota Aplicada nos Bastidores</span>
+                  <span className="text-emerald-400 font-mono font-bold">Teto Automático Ativo</span>
+                </div>
+
+                <button type="submit" className="w-full bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 text-slate-950 font-black py-4 rounded-2xl text-xs uppercase tracking-wider shadow-xl transition transform hover:scale-[1.01]">
+                  ✓ Confirmar e Enviar para Cotação & Remuneração
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* DASHBOARD COM KPIS MAIORES E SEPARADOS POR REGIÃO */}
         {activeTab === 'dashboard' && (
-          <div className="space-y-8">
+          <div className="space-y-8 animate-fadeIn">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-emerald-500/40 rounded-3xl p-8 shadow-2xl">
                 <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest block mb-2">Volume em Cotação</span>
@@ -532,56 +592,9 @@ export default function App() {
           </div>
         )}
 
-        {/* NOVA SOLICITAÇÃO (DRE OCULTA) */}
-        {activeTab === 'solicitar' && (
-          <div className="max-w-3xl mx-auto">
-            <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl space-y-6">
-              <h2 className="text-2xl font-black text-white">Nova Solicitação de Coleta</h2>
-
-              <form onSubmit={handleCriarSolicitacao} className="space-y-5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">CPF ou CNPJ</label>
-                  <input type="text" required value={novaColeta.cnpj} onChange={handleDocumentoChange} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white font-mono" />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Gerador</label>
-                    <input type="text" required value={novaColeta.gerador} onChange={e => setNovaColeta({...novaColeta, gerador: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Volume (Litros)</label>
-                    <input type="number" required value={novaColeta.volume_estimado} onChange={e => setNovaColeta({...novaColeta, volume_estimado: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-emerald-400 font-mono font-bold" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Cidade</label>
-                    <input type="text" value={novaColeta.cidade} onChange={e => setNovaColeta({...novaColeta, cidade: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">UF</label>
-                    <input type="text" value={novaColeta.estado} onChange={e => setNovaColeta({...novaColeta, estado: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white uppercase" />
-                  </div>
-                </div>
-
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
-                  <span>Validação Econômica de Rota Aplicada nos Bastidores</span>
-                  <span className="text-emerald-400 font-mono font-bold">Teto Automático Ativo</span>
-                </div>
-
-                <button type="submit" className="w-full bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 font-black py-4 rounded-2xl text-xs uppercase tracking-wider">
-                  ✓ Enviar Solicitação para Cotação
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
         {/* MATRIZ DE CUSTOS PROTEGIDA POR SENHA */}
         {activeTab === 'config_custos' && (
-          <div className="max-w-5xl mx-auto space-y-8">
+          <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             {!matrizLiberada ? (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md mx-auto text-center space-y-6 shadow-2xl">
                 <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-2xl mx-auto flex items-center justify-center text-xl font-bold border border-amber-500/30">
@@ -628,19 +641,23 @@ export default function App() {
 
         {/* OUTRAS ABAS */}
         {activeTab === 'coletas' && (
-          <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 text-xs font-mono">
+          <div className="bg-slate-900/70 border border-slate-800 rounded-3xl p-6 text-xs font-mono animate-fadeIn">
             <h2 className="text-lg font-bold text-white mb-4">Ordens de Coleta Registradas ({coletas.length})</h2>
-            {coletas.map(c => (
-              <div key={c.id} className="p-3 bg-slate-950 rounded-xl mb-2 flex justify-between border border-slate-800">
-                <span>{c.gerador_nome} ({c.cidade}/{c.estado})</span>
-                <span className="text-emerald-400 font-bold">{c.volume_estimado_litros} L</span>
-              </div>
-            ))}
+            {coletas.length === 0 ? (
+              <p className="text-slate-500">Nenhuma ordem registrada. Utilize a aba "Nova Coleta" para cadastrar.</p>
+            ) : (
+              coletas.map(c => (
+                <div key={c.id} className="p-3 bg-slate-950 rounded-xl mb-2 flex justify-between border border-slate-800">
+                  <span>{c.gerador_nome} ({c.cidade}/{c.estado})</span>
+                  <span className="text-emerald-400 font-bold">{c.volume_estimado_litros} L</span>
+                </div>
+              ))
+            )}
           </div>
         )}
 
         {activeTab === 'unidades' && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 animate-fadeIn">
             <h2 className="text-xl font-black text-white">🏢 Cadastrar Agente ANP</h2>
             <form onSubmit={handleSalvarUnidade} className="space-y-3">
               <input type="text" placeholder="CNPJ" value={novaUnidade.cnpj} onChange={handleCnpjUnidadeChange} className="w-full bg-slate-950 border border-slate-800 p-2 text-xs text-white rounded" required />
@@ -651,7 +668,7 @@ export default function App() {
         )}
 
         {activeTab === 'config_mtr' && (
-          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6">
+          <div className="max-w-4xl mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 animate-fadeIn">
             <h2 className="text-xl font-black text-white mb-4">⚙️ Conectores MTR</h2>
             {Object.entries(sistemasMtrEstaduais).map(([uf, info]) => (
               <div key={uf} className="bg-slate-950 p-3 rounded-xl mb-2 flex justify-between items-center border border-slate-800">
