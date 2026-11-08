@@ -79,7 +79,7 @@ export default function App() {
     estado: 'ES'
   })
 
-  // Estado da DRE Calculada em Tempo Real
+  // Estado da DRE Calculada em Tempo Real (Sem exibição do escalonamento interno)
   const [breakdownAtual, setBreakdownAtual] = useState({
     precoBrutoRerrefino: '2.40',
     custoMaoDeObraMotorista: '0.23',
@@ -91,9 +91,7 @@ export default function App() {
     tetoSugerido: '1.51',
     faixaTexto: 'R$ 1.13 a R$ 1.51 / L',
     nomeUsinaProxima: 'Base ES ➔ Usina SP',
-    nomeZona: 'Hub Direto (Baixo Frete)',
-    descontoEscalaPorcentagem: 0,
-    fatorEscalaTexto: '100% (Volume Cheio)'
+    nomeZona: 'Hub Direto (Baixo Frete)'
   })
 
   // Estado do Formulário de Cadastro de Unidades Operacionais
@@ -182,7 +180,7 @@ export default function App() {
     return sistemas
   }
 
-  // MOTOR DINÂMICO DE DRE + FRETE DE TRANSBORDO + ESCALONAMENTO POR VOLUME
+  // MOTOR DE DRE + TRANSBORDO + ESCALONAMENTO INTERNO DE FAIXAS DE VOLUME
   const getCalculoLogisticoDetalhadoDinamico = async (cidade, estado, volumeLitros, requerBalsa, temTransbordo, ufBase, ufDestino) => {
     const vol = parseFloat(volumeLitros) || 0
     const uf = (estado || '').toUpperCase().trim()
@@ -193,20 +191,20 @@ export default function App() {
     // 1. Preço Base de Referência Usina
     const precoBrutoRerrefino = 2.40 
 
-    // 2. Mão de Obra e Folha CCT com Periculosidade por Região
+    // 2. Mão de Obra e Folha CCT por Região
     const custosTrabalhistasUF = {
       'SP': 0.28, 'RJ': 0.26, 'MG': 0.24, 'ES': 0.23, 'PR': 0.25, 'SC': 0.25, 'RS': 0.25, 'BA': 0.22
     }
     let custoMaoDeObraMotorista = custosTrabalhistasUF[uf] || 0.24
 
-    // 3. Coleta Capilar Local (Distância do Hub, Diesel S10, Pneus e Manutenção)
+    // 3. Coleta Capilar Local
     let custoDieselPneusMaint = 0.30
     const cidadesHub = ['serra', 'vitoria', 'vitória', 'vila velha', 'cariacica', 'viana']
     if (uf === 'ES' && cidadesHub.includes(cid)) {
-      custoDieselPneusMaint -= 0.04 // Desconto de raio curto da base Serra
+      custoDieselPneusMaint -= 0.04
     }
 
-    // 4. CONSULTA DINÂMICA AO SUPABASE: Distância e Rota Entreposto ➔ Rerrefinador
+    // 4. Consulta Dinâmica ao Supabase: Rota Entreposto ➔ Rerrefinador
     let custoFreteTransbordo = 0.00
     let nomeUsinaProxima = 'Envio Direto Usina'
 
@@ -241,7 +239,6 @@ export default function App() {
         console.error("Erro ao consultar unidades no Supabase:", err)
       }
 
-      // Tarifação por trecho de longa distância (carreta 35m³)
       if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'RJ') custoFreteTransbordo = 0.15
       else if (ufBaseArmazenamento === 'ES' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.22
       else if (ufBaseArmazenamento === 'MG' && ufUsinaRerrefino === 'SP') custoFreteTransbordo = 0.16
@@ -249,42 +246,34 @@ export default function App() {
       else custoFreteTransbordo = 0.18
     }
 
-    // 5. Custos Administrativos e Licenças
+    // 5. Custos Administrativos
     const custosAdministrativos = 0.18
 
-    // 6. Custo de Travessia Fluvial / Balsa
+    // 6. Custo Balsa
     const custoBalsa = requerBalsa ? 0.35 : 0.00
 
-    // 7. Deduções Operacionais Totais de Rota
+    // 7. Deduções Operacionais Totais
     const deducoesTotais = custoMaoDeObraMotorista + custoDieselPneusMaint + custoFreteTransbordo + custosAdministrativos + custoBalsa
     
     // Teto Base Operacional sem escalonamento
     const tetoBaseCalculado = Math.max(0.30, precoBrutoRerrefino - deducoesTotais)
 
-    // 8. ESCALONAMENTO COMERCIAL DE COMPRA POR FAIXA DE VOLUME
-    let fatorEscala = 1.00 // > 1000L = valor cheio
-    let descontoEscalaPorcentagem = 0
-    let fatorEscalaTexto = '100% (Valor Cheio)'
+    // 8. ESCALONAMENTO INTERNO DE FAIXA DE VOLUME (Cálculo silencioso de retaguarda)
+    let fatorEscala = 1.00 // > 1500L = valor cheio
 
     if (vol > 0 && vol <= 200) {
-      fatorEscala = 0.80
-      descontoEscalaPorcentagem = 20
-      fatorEscalaTexto = '-20% (Faixa ≤ 200L)'
+      fatorEscala = 0.75 // -25%
     } else if (vol > 200 && vol <= 300) {
-      fatorEscala = 0.85
-      descontoEscalaPorcentagem = 15
-      fatorEscalaTexto = '-15% (Faixa ≤ 300L)'
+      fatorEscala = 0.80 // -20%
     } else if (vol > 300 && vol <= 500) {
-      fatorEscala = 0.90
-      descontoEscalaPorcentagem = 10
-      fatorEscalaTexto = '-10% (Faixa ≤ 500L)'
+      fatorEscala = 0.85 // -15%
     } else if (vol > 500 && vol <= 1000) {
-      fatorEscala = 0.95
-      descontoEscalaPorcentagem = 5
-      fatorEscalaTexto = '-5% (Faixa ≤ 1000L)'
+      fatorEscala = 0.90 // -10%
+    } else if (vol > 1000 && vol <= 1500) {
+      fatorEscala = 0.95 // -5%
     }
 
-    // Aplicação do escalonamento sobre o valor líquido praticável ao cliente
+    // Aplicação do fator de escala ao valor praticável entregue ao cliente
     const valorLiquidoMaximo = tetoBaseCalculado * fatorEscala
     const valorLiquidoMinimo = Math.max(0.20, valorLiquidoMaximo * 0.75)
 
@@ -303,9 +292,7 @@ export default function App() {
       tetoSugerido: valorLiquidoMaximo.toFixed(2),
       faixaTexto: `R$ ${valorLiquidoMinimo.toFixed(2)} a R$ ${valorLiquidoMaximo.toFixed(2)} / L`,
       nomeUsinaProxima,
-      nomeZona,
-      descontoEscalaPorcentagem,
-      fatorEscalaTexto
+      nomeZona
     }
   }
 
@@ -539,7 +526,7 @@ export default function App() {
 
       if (valDigitado > teto + 0.30) {
         const aceita = window.confirm(
-          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera o limite da sua faixa de volume (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
+          `Atenção: O valor solicitado de R$ ${valDigitado.toFixed(2)}/L supera o valor teto calculado para a sua localização/volume (teto recomendado: R$ ${teto.toFixed(2)}/L).\n\nDeseja enviar assim mesmo?`
         )
         if (!aceita) return
       }
@@ -702,13 +689,13 @@ export default function App() {
                   </div>
                   <div>
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold mb-2">
-                      🚚 Escalonamento Comercial & Transbordo de OLUC
+                      🚚 Operação Dinâmica & Logística Transbordo
                     </div>
                     <h2 className="text-3xl font-black text-white tracking-tight">
                       LubeLoop <span className="text-emerald-400">Plataforma OLUC</span>
                     </h2>
                     <p className="text-slate-400 text-sm leading-relaxed mt-1 max-w-xl">
-                      DRE completa integrando folha de motoristas CCT, periculosidade, insumos, administração, frete de transferência e escalonamento por faixa de volume.
+                      DRE completa integrando folha de motoristas CCT, periculosidade, insumos, administração e o frete de transferência entre entrepostos e usinas licenciadas.
                     </p>
                   </div>
                 </div>
@@ -1049,7 +1036,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO COM DRE E ESCALONAMENTO */}
+        {/* ABA: FORMULÁRIO DE NOVA SOLICITAÇÃO DE COLETA */}
         {activeTab === 'solicitar' && (
           <div className="max-w-3xl mx-auto animate-fadeIn">
             <div className="bg-slate-900/70 backdrop-blur-2xl border border-slate-800/90 rounded-3xl p-6 md:p-10 shadow-2xl relative overflow-hidden">
@@ -1060,7 +1047,7 @@ export default function App() {
                   <LubeLoopLogo className="w-10 h-10" />
                   <div>
                     <h2 className="text-2xl font-black text-white tracking-tight">Nova Solicitação de Coleta</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">DRE Logística + Escalonamento por Faixa de Volume + Transbordo.</p>
+                    <p className="text-xs text-slate-400 mt-0.5">DRE Logística & Viabilidade Comercial de Rota.</p>
                   </div>
                 </div>
               </div>
@@ -1270,10 +1257,10 @@ export default function App() {
                 <div className="bg-slate-950/80 p-5 rounded-2xl border border-emerald-500/20 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                      <span>🛢️</span> Volume & Escalonamento de Preço
+                      <span>🛢️</span> Volume & Valor da Proposta
                     </span>
                     <span className="text-xs text-amber-300 font-mono font-bold">
-                      Teto Praticável na Faixa: R$ {breakdownAtual.tetoSugerido} / L
+                      Teto Praticável na Rota: R$ {breakdownAtual.tetoSugerido} / L
                     </span>
                   </div>
 
@@ -1307,14 +1294,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* INDICADOR DE FAIXA DE ESCALONAMENTO DE VOLUME */}
-                  <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs font-mono">
-                    <span className="text-slate-400">Ajuste de Escala por Volume:</span>
-                    <span className={`font-extrabold px-2.5 py-1 rounded-md ${breakdownAtual.descontoEscalaPorcentagem > 0 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}`}>
-                      {breakdownAtual.fatorEscalaTexto}
-                    </span>
-                  </div>
-
                   <div className="flex items-center gap-3 pt-1 bg-slate-900/50 p-3 rounded-xl border border-slate-800/80">
                     <input 
                       type="checkbox" 
@@ -1329,7 +1308,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* CARD VISUAL DRE COMPLETA + TRANSBORDO + ESCALONAMENTO */}
+                {/* CARD VISUAL DRE COMPLETA (SEM DADOS INTERNOS DE ESCALONAMENTO) */}
                 <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
@@ -1344,7 +1323,7 @@ export default function App() {
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed">
-                    Composição dos custos de coleta capilar, folha CCT, frete de transbordo e o ajuste de escala de volume:
+                    Composição dos custos de coleta capilar, folha CCT e o <strong>frete de transferência da base para o rerrefino</strong>:
                   </p>
 
                   <div className="space-y-2.5 font-mono text-xs">
@@ -1402,16 +1381,6 @@ export default function App() {
                           <span>🚢</span> Travessia Fluvial / Tarifação Balsa HAZMAT
                         </span>
                         <span className="text-amber-300 font-bold">- R$ {breakdownAtual.custoBalsa} / L</span>
-                      </div>
-                    )}
-
-                    {/* Fator de Escalonamento de Volume */}
-                    {breakdownAtual.descontoEscalaPorcentagem > 0 && (
-                      <div className="flex justify-between items-center bg-amber-950/40 p-2.5 rounded-xl border border-amber-500/30">
-                        <span className="text-amber-300 flex items-center gap-2 font-bold">
-                          <span>📉</span> Ajuste por Volume Escalonado ({breakdownAtual.fatorEscalaTexto})
-                        </span>
-                        <span className="text-amber-300 font-bold">Aplica -{breakdownAtual.descontoEscalaPorcentagem}%</span>
                       </div>
                     )}
 
